@@ -1,0 +1,1 @@
+"""Notifier stubs for sudoagent."""
