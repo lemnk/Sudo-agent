@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from sudoagent import ApprovalDenied, ApprovalError, PolicyError, SudoEngine
-from sudoagent.policies import Policy, PolicyResult
+from sudoagent.policies import PolicyResult
 from sudoagent.types import AuditEntry, Context, Decision
 
 
