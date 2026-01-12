@@ -1,9 +1,15 @@
-"""Base logger stub."""
+"""Audit logger interface for SudoAgent v0.1."""
+
+from __future__ import annotations
+
+from typing import Protocol
+
+from ..types import AuditEntry
 
 
-class Logger:
-    """Placeholder logger interface."""
+class AuditLogger(Protocol):
+    """Protocol for audit logging implementations."""
 
-    def write(self, payload: str) -> None:
-        """Stub write method."""
-        pass
+    def log(self, entry: AuditEntry) -> None:
+        """Write an audit entry to the log."""
+        ...
