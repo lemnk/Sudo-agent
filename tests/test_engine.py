@@ -118,7 +118,7 @@ def test_require_approval_denied_raises_and_logs() -> None:
     def sample_func(x: int) -> int:
         return x * 3
 
-    with pytest.raises(ApprovalDenied, match="denied by user"):
+    with pytest.raises(ApprovalDenied, match="needs approval"):
         engine.execute(sample_func, 7)
 
     assert len(logger.entries) == 1
@@ -163,3 +163,21 @@ def test_approver_exception_fails_closed() -> None:
     assert logger.entries[0].reason == "approval process failed"
     assert "error" in logger.entries[0].metadata
     assert "request_id" in logger.entries[0].metadata
+
+
+def test_sensitive_kwargs_redacted_in_audit() -> None:
+    policy = StubPolicy(Decision.ALLOW, "allowed")
+    logger = MemoryLogger()
+    engine = SudoEngine(policy=policy, logger=logger, approver=StubApprover(False))
+
+    def sample_func(api_key: str, user_id: str) -> str:
+        return f"user={user_id}"
+
+    result = engine.execute(sample_func, api_key="sk-test", user_id="user_123")
+
+    assert result == "user=user_123"
+    assert len(logger.entries) == 1
+    assert logger.entries[0].decision == Decision.ALLOW
+    kwargs_in_metadata = logger.entries[0].metadata["kwargs"]
+    assert kwargs_in_metadata["api_key"] == "[redacted]"
+    assert "sk-test" not in str(logger.entries[0].metadata)

@@ -30,14 +30,36 @@ def _safe_repr(obj: Any, max_length: int = 200) -> str:
         return "<repr failed>"
 
 
+def _is_sensitive_key(key: str) -> bool:
+    """Check if a key name indicates sensitive data."""
+    key_lower = key.lower()
+    sensitive_terms = (
+        "api_key",
+        "apikey",
+        "token",
+        "secret",
+        "password",
+        "passwd",
+        "authorization",
+        "bearer",
+    )
+    return any(term in key_lower for term in sensitive_terms)
+
+
 def _safe_args_list(args: tuple[Any, ...]) -> list[str]:
     """Convert args tuple to list of safe string representations."""
     return [_safe_repr(arg) for arg in args]
 
 
 def _safe_kwargs_dict(kwargs: dict[str, Any]) -> dict[str, str]:
-    """Convert kwargs dict to dict with safe string representations."""
-    return {k: _safe_repr(v) for k, v in kwargs.items()}
+    """Convert kwargs dict to dict with safe string representations, redacting sensitive keys."""
+    result = {}
+    for k, v in kwargs.items():
+        if _is_sensitive_key(k):
+            result[k] = "[redacted]"
+        else:
+            result[k] = _safe_repr(v)
+    return result
 
 
 class SudoEngine:
@@ -102,7 +124,7 @@ class SudoEngine:
                     "kwargs": _safe_kwargs_dict(kwargs),
                 },
             )
-            raise ApprovalDenied(f"Action denied: {result.reason}")
+            raise ApprovalDenied(result.reason)
 
         elif result.decision == Decision.REQUIRE_APPROVAL:
             request_id = str(uuid4())
@@ -151,7 +173,7 @@ class SudoEngine:
                         "kwargs": _safe_kwargs_dict(kwargs),
                     },
                 )
-                raise ApprovalDenied(f"Action denied by user: {result.reason}")
+                raise ApprovalDenied(result.reason)
 
         else:
             self._log_audit(
