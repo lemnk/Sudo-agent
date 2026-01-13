@@ -22,3 +22,6 @@ dev = [
   "ruff",
   "mypy",
 ]
+
+[tool.setuptools.package-data]
+sudoagent = ["py.typed"]
