@@ -4,6 +4,10 @@
   <img src="https://raw.githubusercontent.com/lemnk/Sudo-agent/main/docs/sudoagent_logo.png" width="120" alt="SudoAgent Logo" />
 </p>
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/lemnk/Sudo-agent/main/docs/demo.gif" alt="SudoAgent Demo" />
+</p>
+
 A Python library that guards function calls at runtime with policy evaluation, optional human approval, and audit logging.
 
 Version: 0.1.1
