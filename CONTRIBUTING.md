@@ -80,7 +80,11 @@ mypy src
 Recommended pre-flight before opening a PR:
 
 ```bash
+# bash/zsh
 ruff check . && mypy src && pytest -q
+
+# PowerShell
+ruff check .; mypy src; pytest -q
 ```
 
 ## How to contribute

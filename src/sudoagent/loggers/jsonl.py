@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .base import AuditLogger
 from ..errors import AuditLogError
 from ..types import AuditEntry
 

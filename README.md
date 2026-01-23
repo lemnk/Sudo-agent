@@ -1,30 +1,37 @@
 # sudoagent
 
-A small Python library that guards "dangerous" function calls at runtime.
-It evaluates a policy, optionally asks a human for approval in the terminal, and writes an append-only JSONL audit log.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/lemnk/Sudo-agent/main/docs/sudoagent_logo.png" width="120" alt="SudoAgent Logo" />
+</p>
 
-Status: v0.1 MVP
+A Python library that guards function calls at runtime with policy evaluation, optional human approval, and audit logging.
+
+Version: 0.1.1
 
 ## What it does
 
-SudoAgent wraps a Python function call and enforces one of three outcomes:
+SudoAgent wraps a function call and enforces one of three outcomes:
 
-- allow: run immediately
-- deny: block the call
-- require_approval: pause and ask a human (interactive y/n)
+- **allow**: execute immediately
+- **deny**: block the call, raise `ApprovalDenied`
+- **require_approval**: request approval; executes only if approved
 
-Every decision is recorded to an append-only audit log (`sudo_audit.jsonl` by default).
+Every decision is recorded to an audit log (`sudo_audit.jsonl` by default).
 
-## Why this exists
+## How it works
 
-Agent code can call real tools: refunds, deletes, API writes, production changes.
-Most "safety" today is prompt-level. SudoAgent is a runtime gate you can put around any tool function.
+1. You create a `SudoEngine` with a required policy.
+2. You decorate functions with `@sudo.guard()` or call `sudo.execute(func, ...)`.
+3. The engine evaluates the policy, optionally invokes the approver, writes the decision to the audit log, and then executes (or denies).
 
-SudoAgent is intentionally minimal:
-- synchronous only (v0.1)
-- interactive approval in the same terminal
-- JSONL audit log
-- small surface area, easy to extend via interfaces
+Key behavior:
+- Decision logging happens *before* execution and is fail-closed. If logging fails, execution is blocked and `AuditLogError` is raised.
+- Outcome logging happens *after* execution and is best-effort. Logging failures do not affect the return value.
+- Approved actions produce two audit entries (decision + outcome). Denied actions produce one (decision only).
+- Entries for the same call are linked by `request_id` (UUID4).
+- Audit entries include timestamp, action, decision, reason, and safe representations of args/kwargs.
+
+See [docs/architecture.md](docs/architecture.md) for the full execution flow and audit semantics.
 
 ## Install
 
@@ -38,7 +45,6 @@ Dev install:
 python -m venv .venv
 source .venv/bin/activate  # Linux/macOS
 # PowerShell: .\.venv\Scripts\Activate.ps1
-# cmd.exe: .venv\Scripts\activate.bat
 pip install -e ".[dev]"
 ```
 
@@ -50,11 +56,22 @@ Run the demo:
 python examples/quickstart.py
 ```
 
-What you should see:
+What happens:
+- A low-value refund is allowed automatically.
+- A high-value refund triggers an interactive approval prompt.
+- Decisions are written to `sudo_audit.jsonl`.
 
-- a low-value refund auto-approves
-- a high-value refund triggers an approval prompt
-- approvals/denials are written to sudo_audit.jsonl
+To run non-interactively (CI/demo):
+
+```bash
+SUDOAGENT_AUTO_APPROVE=1 python examples/quickstart.py
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:SUDOAGENT_AUTO_APPROVE="1"; python examples/quickstart.py
+```
 
 ## Basic usage
 
@@ -68,9 +85,10 @@ class HighValueRefundPolicy:
             return PolicyResult(decision=Decision.ALLOW, reason="within limit")
         return PolicyResult(decision=Decision.REQUIRE_APPROVAL, reason="over limit")
 
-sudo = SudoEngine()
+policy = HighValueRefundPolicy()
+sudo = SudoEngine(policy=policy)
 
-@sudo.guard(policy=HighValueRefundPolicy())
+@sudo.guard()
 def refund_user(user_id: str, refund_amount: float) -> None:
     print(f"Refunding {refund_amount} to {user_id}")
 
@@ -84,51 +102,47 @@ except ApprovalDenied as e:
 
 ## Core concepts
 
-- Context: what got called (action), with args/kwargs captured
-- Policy: decides allow/deny/require_approval
-- Approver: performs the approval step (interactive terminal in v0.1)
-- AuditLogger: writes structured records (JSONL in v0.1)
-- Fail closed: if policy or approval fails, SudoAgent denies
+- **Context**: captures the function call (action name, args, kwargs, metadata).
+- **Policy**: returns `ALLOW`, `DENY`, or `REQUIRE_APPROVAL` with a reason.
+- **Approver**: handles the approval step. Default is `InteractiveApprover` (terminal y/n).
+- **AuditLogger**: writes audit entries. Default is `JsonlAuditLogger`.
+- **Fail-closed**: if policy, approval, or decision logging fails, execution is blocked.
 
-## Security notes (v0.1)
+## Security notes
 
-SudoAgent is designed to be safe-by-default for the MVP:
+- Rich markup in approval prompts is escaped to prevent terminal injection.
+- Audit logging redacts sensitive key names (`api_key`, `token`, `password`, etc.) and values (JWT-like strings, `sk-` prefixes, PEM blocks).
+- Decision logging failures raise `AuditLogError` and block execution. Outcome logging failures do not block.
+- Denied actions log the decision only. Approved actions log decision and outcome, linked by `request_id`.
 
-- Rich UI output is escaped to prevent markup injection in prompts.
-- Audit logging redacts common sensitive keyword names (api_key, token, password, secret, etc.).
-- The system fails closed: policy/approval errors result in denial.
+Example audit entries:
+```json
+{"event":"decision","request_id":"...","action":"...","decision":"allow","reason":"within limit",...}
+{"event":"outcome","request_id":"...","outcome":"success",...}
+```
 
-This is not a sandbox and does not prevent side effects inside the guarded function itself.
-If you need isolation, run tools in a separate process/container and guard the boundary.
+Limitations:
+- This is not a sandbox. Side effects inside the guarded function are not prevented.
+- The default JSONL logger is intended for single-process use (append-only by normal operation, not tamper-evident). For multi-process or multi-host deployments, implement a custom `AuditLogger`.
 
-## Extending SudoAgent
+## Extending
 
-v0.1 ships with:
+v0.1 includes:
+- `InteractiveApprover` (terminal prompt)
+- `JsonlAuditLogger` (append-only JSONL)
 
-- InteractiveApprover (terminal y/n)
-- JsonlAuditLogger (append-only JSONL)
+To use Slack, email, web UIs, or a database:
+- Implement the `Approver` protocol.
+- Implement the `AuditLogger` protocol.
+- Pass them to `SudoEngine(policy=..., approver=..., logger=...)`.
 
-To integrate with Slack, email, web UIs, or a database logger:
-
-- implement the Approver protocol
-- implement the AuditLogger protocol
-- pass them into SudoEngine(policy=..., approver=..., logger=...)
-
-## Roadmap
-
-Planned next:
-
-- non-interactive mode (useful for CI / production defaults)
-- richer redaction configuration
-- Slack/Webhook approvers (out of core, optional adapters)
-- async support (separate API surface)
+Notes:
+- Policy is required at construction. Pass `AllowAllPolicy()` explicitly for permissive mode.
+- `InteractiveApprover` is intended for local development. For production, implement a custom approver.
 
 ## Contributing
 
-Small PRs are welcome. Keep changes minimal and reviewable.
-If you add a new behavior, include tests.
-
-Development commands:
+Small PRs are welcome. Include tests for new behavior.
 
 ```bash
 pytest -q

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 import json
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -68,12 +68,22 @@ class ApprovalResult(BaseModel):
 
 
 class AuditEntry(BaseModel):
-    """Audit log entry for JSONL output."""
+    """Audit log entry for JSONL output.
+
+    Two event types:
+    - "decision": records the policy decision (allow/deny/require_approval)
+    - "outcome": records the execution result (success/error)
+    """
 
     timestamp: datetime
+    request_id: str
+    event: Literal["decision", "outcome"] = "decision"
     action: str
     decision: Decision
     reason: str
+    outcome: Literal["success", "error"] | None = None
+    error_type: str | None = None
+    error: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("timestamp")
@@ -83,6 +93,28 @@ class AuditEntry(BaseModel):
             raise ValueError("timestamp must be timezone-aware")
         return value
 
+    @field_validator("request_id")
+    @classmethod
+    def _request_id_non_empty(cls, value: str) -> str:
+        if not value or not value.strip():
+            raise ValueError("request_id must be a non-empty string")
+        return value
+
+    @field_validator("error", mode="before")
+    @classmethod
+    def _truncate_error(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if len(value) > 200:
+            return value[:197] + "..."
+        return value
+
+    @model_validator(mode="after")
+    def _validate_outcome_event(self) -> "AuditEntry":
+        if self.event == "outcome" and self.outcome is None:
+            raise ValueError("outcome is required when event is 'outcome'")
+        return self
+
     def to_json_line(self) -> str:
         """Render the entry as a single JSON line."""
-        return json.dumps(self.model_dump(mode="json"))
+        return json.dumps(self.model_dump(mode="json", exclude_none=True))

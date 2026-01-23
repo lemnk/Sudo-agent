@@ -10,5 +10,9 @@ build/
 .ruff_cache/
 .mypy_cache/
 
-# Cursor local state (DO NOT COMMIT)
+
 .cursor/
+.cursorrules
+
+# Local test artifacts
+sudo_audit.jsonl

@@ -1,6 +1,10 @@
-"""Quickstart demo for SudoAgent v0.1."""
+"""Quickstart demo for SudoAgent v0.1.1"""
+
+import os
 
 from sudoagent import ApprovalDenied, Context, Decision, PolicyResult, SudoEngine
+from sudoagent.notifiers.base import Approver
+from sudoagent.policies import PolicyResult as PR
 
 
 class HighValueRefundPolicy:
@@ -14,17 +18,28 @@ class HighValueRefundPolicy:
                 decision=Decision.ALLOW,
                 reason=f"refund of ${refund_amount} is within auto-approval limit",
             )
-        else:
-            return PolicyResult(
-                decision=Decision.REQUIRE_APPROVAL,
-                reason=f"refund of ${refund_amount} exceeds $500 threshold",
-            )
+        return PolicyResult(
+            decision=Decision.REQUIRE_APPROVAL,
+            reason=f"refund of ${refund_amount} exceeds $500 threshold",
+        )
+
+
+class AlwaysApprove(Approver):
+    """Auto-approver for CI/demo runs."""
+
+    def approve(self, ctx: Context, result: PR, request_id: str) -> bool:
+        print("[auto-approved for demo]")
+        return True
 
 
 def main() -> None:
-    sudo = SudoEngine()
+    policy = HighValueRefundPolicy()
 
-    @sudo.guard(policy=HighValueRefundPolicy())
+    # Use auto-approve if SUDOAGENT_AUTO_APPROVE=1 (for CI/demo)
+    approver = AlwaysApprove() if os.getenv("SUDOAGENT_AUTO_APPROVE") == "1" else None
+    sudo = SudoEngine(policy=policy, approver=approver)
+
+    @sudo.guard()
     def refund_user(user_id: str, refund_amount: float) -> None:
         print(f"Processing refund: ${refund_amount} to user {user_id}")
 
@@ -36,6 +51,9 @@ def main() -> None:
         refund_user("user_456", refund_amount=1500.0)
     except ApprovalDenied as e:
         print(f"Denied: {e}")
+
+    print("\nAudit log written to: sudo_audit.jsonl")
+    print("Tip: look for two entries per approved action (decision + outcome) linked by request_id.")
 
 
 if __name__ == "__main__":
