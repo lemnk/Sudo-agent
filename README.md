@@ -5,12 +5,24 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/lemnk/Sudo-agent/actions/workflows/ci.yml">
+    <img src="https://github.com/lemnk/Sudo-agent/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  </a>
+  <a href="https://pypi.org/project/sudoagent/">
+    <img src="https://img.shields.io/pypi/v/sudoagent.svg" alt="PyPI" />
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/pypi/l/sudoagent.svg" alt="License" />
+  </a>
+</p>
+
+<p align="center">
   <img src="https://raw.githubusercontent.com/lemnk/Sudo-agent/main/docs/demo.gif" alt="SudoAgent Demo" />
 </p>
 
 A Python library that guards function calls at runtime with policy evaluation, optional human approval, and audit logging.
 
-Version: 0.1.1
+Version: 0.2.0 (v2 ledger/verification)
 
 ## What it does
 
@@ -65,6 +77,16 @@ What happens:
 - A high-value refund triggers an interactive approval prompt.
 - Decisions are written to `sudo_audit.jsonl`.
 
+v2 ledger demo (decision_hash + verification):
+
+```bash
+python examples/v2_demo.py
+sudoagent verify sudo_ledger.jsonl
+# Or JSON output
+sudoagent verify sudo_ledger.jsonl --json
+```
+(The demo writes `sudo_ledger.jsonl` in the current directory; delete it between runs if you want a fresh ledger.)
+
 To run non-interactively (CI/demo):
 
 ```bash
@@ -111,6 +133,9 @@ except ApprovalDenied as e:
 - **Approver**: handles the approval step. Default is `InteractiveApprover` (terminal y/n).
 - **AuditLogger**: writes audit entries. Default is `JsonlAuditLogger`.
 - **Fail-closed**: if policy, approval, or decision logging fails, execution is blocked.
+- **decision_hash**: SHA-256 over canonical decision payload (request_id, intent, parameters, actor, policy_hash).
+- **policy_hash**: SHA-256 over canonicalized policy identifier (class name by default).
+- **Ledger verification**: `sudoagent verify <ledger_path>` checks hash chain and canonical form.
 
 ## Security notes
 

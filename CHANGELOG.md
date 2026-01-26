@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-01-24
+
+### Added
+- Canonical JSON encoding and SHA-256 hashing utilities for deterministic payloads.
+- Tamper-evident JSONL ledger with hash chaining, locking, and strict verification.
+- Decision/outcome ledger integration with `decision_hash`, `policy_hash`, and `reason_code`.
+- Approval binding validation tied to `{request_id, policy_hash, decision_hash}`.
+- Budget manager with Check -> Commit semantics and engine enforcement.
+- CLI verification command: `sudoagent verify <ledger_path>` with `--json` output.
+- v2 demo and ledger documentation.
+- Hardening tests for partial lines, hash mismatches, sequential multi-handle appends, and deterministic redaction.
+
+### Changed
+- Audit logging now writes to the ledger in addition to the existing audit logger.
+- Policy evaluation now emits deterministic decision hashes for binding and verification.
+
 ## [0.1.1] - 2026-01-22
 
 ### Added
