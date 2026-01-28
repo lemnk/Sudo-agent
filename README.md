@@ -28,10 +28,6 @@
   </a>
 </p>
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/lemnk/Sudo-agent/main/docs/demo.gif" alt="SudoAgent Demo" />
-</p>
-
 A Python library that guards function calls at runtime with policy evaluation, optional human approval, and a verifiable ledger.
 
 Version: 2.0.0 (v2 ledger/verification)
