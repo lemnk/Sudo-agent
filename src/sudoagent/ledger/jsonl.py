@@ -98,7 +98,8 @@ def _lock(file_handle: TextIO) -> None:
     if os.name == "nt":
         import msvcrt
 
-        msvcrt.locking(file_handle.fileno(), msvcrt.LK_LOCK, _LOCK_LENGTH)
+        msvcrt_mod = cast(_MsvcrtModule, msvcrt)
+        msvcrt_mod.locking(file_handle.fileno(), msvcrt_mod.LK_LOCK, _LOCK_LENGTH)
     else:
         import fcntl
 
@@ -110,7 +111,8 @@ def _unlock(file_handle: TextIO) -> None:
     if os.name == "nt":
         import msvcrt
 
-        msvcrt.locking(file_handle.fileno(), msvcrt.LK_UNLCK, _LOCK_LENGTH)
+        msvcrt_mod = cast(_MsvcrtModule, msvcrt)
+        msvcrt_mod.locking(file_handle.fileno(), msvcrt_mod.LK_UNLCK, _LOCK_LENGTH)
     else:
         import fcntl
 
@@ -119,6 +121,15 @@ def _unlock(file_handle: TextIO) -> None:
 
 
 _LOCK_LENGTH = 1
+
+
+class _MsvcrtModule(Protocol):
+    # typing shim for mypy on Linux/macOS (msvcrt locking missing on posix)
+    LK_LOCK: int
+    LK_UNLCK: int
+
+    def locking(self, fd: int, mode: int, nbytes: int) -> None:
+        ...
 
 
 class _FcntlModule(Protocol):
