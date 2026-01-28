@@ -221,8 +221,9 @@ def _verify_stream(handle: TextIO, *, public_key: VerifyKey | None = None) -> No
 
         entry_with_null = copy.deepcopy(entry)
         entry_with_null["entry_hash"] = None
-        if "entry_signature" in entry_with_null:
-            entry_with_null["entry_signature"] = None
+        # Remove entry_signature entirely (not set to None) since the original
+        # hash was computed before entry_signature was added to the entry
+        entry_with_null.pop("entry_signature", None)
         calculated_hash = canonical_sha256_hex(entry_with_null)
 
         actual_hash = entry.get("entry_hash")
