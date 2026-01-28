@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-01-28
+
+### Added
+- Fail-closed runtime pipeline: policy → (optional) approval → (optional) budgets → execution.
+- Tamper-evident ledgers with hash chaining; JSONL backend (default) and SQLite WAL backend.
+- Optional Ed25519 signing/verification and receipt export via CLI.
+- Adapters for LangChain, CrewAI, and AutoGen with lazy imports and optional extras.
+- Deterministic redaction shared across policy, approval, and evidence; stable reason-code taxonomy.
+- CLI export/filter/search/verify subcommands plus keygen and receipt commands.
+- Documentation: quickstart, adapters guide, v2 ledger spec, OSS guide, threat model, FAQ.
+- Tests: expanded ledger/CLI/signing coverage; CI installs dev+crypto extras.
+
+### Breaking
+- v1 ledger and API semantics replaced by v2 schema/versioning (see `docs/v2_ledger.md`).
+
 ## [0.2.0] - 2026-01-24
 
 ### Added
@@ -14,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Approval binding validation tied to `{request_id, policy_hash, decision_hash}`.
 - Budget manager with Check -> Commit semantics and engine enforcement.
 - CLI verification command: `sudoagent verify <ledger_path>` with `--json` output.
+- CLI export/filter/search commands plus signing keygen and receipt tooling.
+- SQLite WAL ledger backend with chain verification.
+- Adapter wrappers for LangChain, CrewAI, and AutoGen with examples and docs.
 - v2 demo and ledger documentation.
 - Hardening tests for partial lines, hash mismatches, sequential multi-handle appends, and deterministic redaction.
 

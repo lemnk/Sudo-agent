@@ -1,206 +1,104 @@
 # Architecture
 
-SudoAgent is a runtime guard for function calls. It evaluates a policy, optionally requests human approval, logs the decision, and then executes (or denies).
+SudoAgent is a runtime authorization layer for tool/function calls: policy -> (optional) approval -> (optional) budgets -> record evidence -> execute -> record outcome.
 
----
+## Core contract (fail-closed)
 
-## Core invariant
+If any of these fail, the guarded function does not execute:
+- policy evaluation
+- approval flow (when required)
+- budget check/commit (when configured)
+- decision logging to the ledger and audit log
 
-**If anything fails before execution (policy, approval, or decision logging), the function does not execute.**
-
-Decision logging is fail-closed. Outcome logging is best-effort.
-
----
+Outcome logging is best-effort and must not change the function's return value or exception.
 
 ## Components
 
 ### SudoEngine
 
-Orchestrates policy evaluation, approval, and audit logging.
+Orchestrates policy evaluation, approval, budgets, and logging.
 
-**Requires:** `policy` at construction. Pass `AllowAllPolicy()` explicitly for permissive mode.
-
-**Responsibilities:**
-- Build `Context` from function call
-- Call `Policy.evaluate(ctx)` → returns `PolicyResult`
-- If `REQUIRE_APPROVAL`, call `Approver.approve(ctx, result, request_id)`
-- Write decision entry to audit log (fail-closed)
-- Execute function (if allowed)
-- Write outcome entry to audit log (best-effort)
-
-**Not responsible for:**
-- Interpreting business logic
-- Handling exceptions beyond outcome logging (it re-raises the original)
-- Redacting return values or side effects
-
-### Context
-
-A snapshot of a pending action:
-- `action`: fully-qualified callable name (`module.qualname`)
-- `args`: positional args tuple
-- `kwargs`: keyword args dict
-- `metadata`: user/system enrichment (trace_id, agent_id, etc.)
-
-Policies treat `Context` as read-only.
+Responsibilities:
+- Build a redacted `Context` from the function call (args/kwargs are redacted first).
+- Evaluate `Policy.evaluate(ctx) -> PolicyResult`.
+- If `REQUIRE_APPROVAL`, call `Approver.approve(ctx, result, request_id)`.
+- Optionally enforce budgets (Check -> Commit).
+- Write a decision record to:
+  - the tamper-evident ledger (evidence)
+  - the audit logger (operational record)
+- Execute the function if allowed.
+- Write an outcome record (best-effort).
 
 ### Policy
 
-Returns a `PolicyResult`:
-- `decision`: `ALLOW` / `DENY` / `REQUIRE_APPROVAL`
-- `reason`: human-readable string for audit logs and approval UIs
-
-Policies should be deterministic and side-effect-free.
+Policies should be deterministic and side-effect-free. They return a `PolicyResult`:
+- `decision`: `ALLOW`, `DENY`, or `REQUIRE_APPROVAL`
+- `reason`: human-readable string
+- `reason_code` (optional): stable taxonomy code
 
 ### Approver
 
-Invoked only when policy returns `REQUIRE_APPROVAL`.
+Approvers are invoked only when policy returns `REQUIRE_APPROVAL`.
 
-- Returns `True` → approved, execution proceeds
-- Returns `False` → denied, raises `ApprovalDenied`
-- Raises exception → denied, raises `ApprovalError`
+The interface supports either:
+- `bool` (approved/denied), or
+- a mapping that can carry `approver_id` plus a binding to `{request_id, policy_hash, decision_hash}`.
 
-Default: `InteractiveApprover` (terminal y/n prompt).
+Default: `InteractiveApprover` (terminal prompt). For production, inject your own approver (Slack/UI/etc.).
 
-### AuditLogger
+### BudgetManager (optional)
 
-Writes `AuditEntry` objects to a log.
+Budgets are evaluated right before execution.
 
-Default: `JsonlAuditLogger` (append-only JSONL file).
+Default semantics are Check -> Commit:
+- check is idempotent by `request_id` (retries do not double-charge)
+- failures are fail-closed (deny)
 
-Decision logging is **fail-closed**: if logging fails, execution is blocked and `AuditLogError` is raised.
+### Ledger (evidence)
 
----
+The ledger is append-only evidence, not a debug log.
+
+By default SudoAgent writes `sudo_ledger.jsonl` using `JSONLLedger`, which:
+- canonicalizes JSON and computes `entry_hash` with a `prev_entry_hash` chain
+- verifies schema/ledger versions and decision/outcome linkage
+- optionally signs entries with Ed25519 when a signing key is configured
+
+For a single-host multi-process deployment, `SQLiteLedger` uses WAL mode.
+
+### AuditLogger (operational)
+
+The audit logger is an operational record (e.g., for local debugging).
+
+By default SudoAgent writes `sudo_audit.jsonl` via `JsonlAuditLogger`. This is not tamper-evident.
 
 ## Execution flow
-
-### Diagram
 
 ![SudoAgent execution flow](sudoagent_flow.png)
 
 ### Semantics table
 
-| Path | Decision logged | Outcome logged | Result |
-|------|-----------------|----------------|--------|
-| Policy → `ALLOW` | `ALLOW` | Yes (best-effort) | Function executes |
-| Policy → `DENY` | `DENY` | No | `raise ApprovalDenied` |
-| Policy → `REQUIRE_APPROVAL` → approved | `ALLOW` (with `approved=True`) | Yes (best-effort) | Function executes |
-| Policy → `REQUIRE_APPROVAL` → denied | `DENY` (with `approved=False`) | No | `raise ApprovalDenied` |
-| Policy raises exception | `DENY` (with error) | No | `raise PolicyError` |
-| Approver raises exception | `DENY` (with error) | No | `raise ApprovalError` |
-| Decision logging fails | N/A | No | `raise AuditLogError` (blocks execution) |
+| Path | Decision recorded | Outcome recorded | Result |
+|------|-------------------|------------------|--------|
+| Policy -> `ALLOW` | Yes (fail-closed) | Yes (best-effort) | Function executes |
+| Policy -> `DENY` | Yes (fail-closed) | No | `raise ApprovalDenied` |
+| Policy -> `REQUIRE_APPROVAL` -> approved | Yes (fail-closed) | Yes (best-effort) | Function executes |
+| Policy -> `REQUIRE_APPROVAL` -> denied | Yes (fail-closed) | No | `raise ApprovalDenied` |
+| Policy raises exception | Yes (`DENY`) | No | `raise PolicyError` |
+| Approver raises exception | Yes (`DENY`) | No | `raise ApprovalError` |
+| Decision logging fails | No | No | `raise AuditLogError` (blocks execution) |
 
-**Note:** The `decision` field in the audit entry reflects the final enforcement decision (`ALLOW` or `DENY`), not the policy's original decision. The original policy decision is recorded in `metadata.policy_decision` for `REQUIRE_APPROVAL` paths.
+## Security notes
 
----
-
-## Audit log semantics
-
-### Entry types
-
-**Approved executions** produce **two entries**:
-1. `event: "decision"` — logged before execution (fail-closed)
-2. `event: "outcome"` — logged after execution (best-effort)
-
-**Denied executions** produce **one entry**:
-1. `event: "decision"` — logged before raising exception
-
-### Correlation
-
-All entries for the same call share a `request_id` (UUID4).
-
-### Entry fields
-
-Common fields:
-- `timestamp` (UTC, timezone-aware)
-- `request_id` (UUID4)
-- `event` (`"decision"` or `"outcome"`)
-- `action` (function name)
-- `decision` (`"allow"` or `"deny"`)
-- `reason` (human-readable)
-- `metadata` (safe representations of args/kwargs)
-
-Outcome-only fields:
-- `outcome` (`"success"` or `"error"`)
-- `error_type` (exception class name, if error)
-- `error` (truncated message ≤200 chars, if error)
-
-### Redaction
-
-Args and kwargs are serialized with:
-- `repr()` truncated to ~200 chars
-- Sensitive key names redacted (`api_key`, `token`, `password`, etc.)
-- Sensitive value patterns redacted (JWT-like, `sk-` prefix, PEM blocks)
-
-### Ordering
-
-- Decision logging: **before** execution, fail-closed
-- Outcome logging: **after** execution, best-effort
-
-### Concurrency
-
-The default JSONL logger is intended for single-process use. Concurrent writes from multiple processes may interleave writes and produce mixed/garbled lines. For multi-process or multi-host deployments, implement a custom `AuditLogger`.
-
----
-
-## Failure behavior
-
-### Fail-closed guarantees
-
-| Failure | Logged decision | Exception raised |
-|---------|----------------|------------------|
-| `Policy.evaluate` raises | `DENY` | `PolicyError` |
-| `Approver.approve` raises | `DENY` | `ApprovalError` |
-| `Approver.approve` interrupted (Ctrl+C/EOF) | `DENY` | `ApprovalError` |
-| Decision logging fails | (none) | `AuditLogError` |
-
-### Best-effort outcome logging
-
-If outcome logging fails after a successful execution, the failure is silently ignored. The decision entry was already recorded.
-
----
-
-## Security model
-
-**Assumptions:**
-- The guarded function is trusted code
-- Inputs may be untrusted (agent/user controlled)
-
-**Defends against:**
-- Terminal markup injection (Rich output is escaped)
-- Secret leakage in logs (redaction of common patterns)
-- Unintended execution on errors (fail-closed)
-
-**Does not defend against:**
-- Malicious local user with filesystem access
-- Sandbox escape or process isolation
-- Side effects inside the guarded function
-
----
+- SudoAgent is not a sandbox. Side effects inside guarded functions are not prevented.
+- Redaction is applied before policy evaluation, approval prompts, and ledger hashing.
+- When using signing, protect private keys (secret manager / protected filesystem).
 
 ## Extending
 
 Extension points:
-- **Policy**: implement `evaluate(ctx) -> PolicyResult`
-- **Approver**: implement `approve(ctx, result, request_id) -> bool`
-- **AuditLogger**: implement `log(entry) -> None`
+- Policy: implement `evaluate(ctx) -> PolicyResult`
+- Approver: implement `approve(ctx, result, request_id) -> bool | Mapping[str, object]`
+- Ledger: implement the `Ledger` protocol (append + verify)
+- AuditLogger: implement `AuditLogger.log(entry) -> None`
 
-Extension method: dependency injection via `SudoEngine` constructor arguments.
-
-Notes:
-- Policy is required at construction
-- `InteractiveApprover` is intended for local development
-- `JsonlAuditLogger` is append-only by normal operation (not tamper-evident)
-
----
-
-## Design decisions
-
-**Why policy is required:** No default-allow footgun. Explicit policy prevents accidental permissive behavior.
-
-**Why fail-closed on decision logging:** A safety layer that silently drops audit records is not safe.
-
-**Why best-effort on outcome logging:** The decision is already recorded. Blocking the return value on a logging failure would be surprising.
-
-**Why synchronous only (v0.1):** Async adds complexity. v0.1 focuses on correct, predictable semantics first.
-
-**Why no built-in Slack/email approvers:** Integrations add operational dependencies. The approver interface supports external extensions.
+SudoAgent is intentionally small: it enforces "do not execute unless governance can be proven", and leaves orchestration to other frameworks.

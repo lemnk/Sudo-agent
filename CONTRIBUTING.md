@@ -9,22 +9,27 @@ Thanks for taking the time to contribute. This doc explains how to set up the re
 - Fail closed. If something goes wrong during policy evaluation, approval, or logging, the action should not execute.
 - Avoid adding new dependencies unless there is a strong reason.
 
-## Project goals (v0.1)
+## Project goals (v2)
 
-SudoAgent is a synchronous runtime guard for sensitive actions:
-- Policy returns ALLOW, DENY, or REQUIRE_APPROVAL.
-- Approval is interactive by default (terminal y/n).
-- Audit logging is append-only JSONL.
-- Inputs may be untrusted. Avoid UI deception and avoid leaking secrets to logs.
+SudoAgent is a synchronous runtime authorization boundary for sensitive actions:
+- Policy returns `ALLOW`, `DENY`, or `REQUIRE_APPROVAL`.
+- Approval is optional and policy-driven (interactive is the default approver).
+- A tamper-evident ledger records decisions and outcomes (decision is recorded before execution).
+- An audit log provides an operational record (not tamper-evident).
+- Budgets are optional and fail closed.
+- Inputs may be untrusted. Avoid UI deception and avoid leaking secrets to logs/prompts.
 
 ## Repository layout
 
 - `src/sudoagent/` core library
   - `engine.py` guard and execution flow
-  - `types.py` typed models
-  - `policies.py` policy protocol and built-in policies
-  - `notifiers/` approvers (interactive, headless, etc.)
-  - `loggers/` audit loggers (JSONL, etc.)
+  - `ledger/` tamper-evident evidence backends (JSONL, SQLite) + canonical hashing
+  - `loggers/` operational audit loggers (JSONL, etc.)
+  - `notifiers/` approvers (interactive, etc.)
+  - `budgets.py` budget enforcement
+  - `redaction.py` centralized deterministic redaction
+  - `reason_codes.py` stable reason-code registry
+  - `cli.py` verify/export/filter/search/keygen/receipt
   - `errors.py` exception types
 - `examples/` runnable demos
 - `tests/` pytest tests
@@ -55,6 +60,12 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -U pip
 python -m pip install -e ".[dev]"
+```
+
+To run signing/receipt tests locally, install the crypto extra:
+
+```bash
+python -m pip install -e ".[dev,crypto]"
 ```
 
 ## Running checks
@@ -131,7 +142,7 @@ Keep docs practical:
 
 - Show how to use the public API.
 - Describe assumptions and failure modes.
-- Avoid large conceptual essays in v0.1.
+- Prefer actionable, example-driven docs over long conceptual essays.
 
 ## Code style
 
@@ -139,7 +150,7 @@ Keep docs practical:
 - Type hints for public functions and most internal ones.
 - Keep functions short and readable.
 - Avoid Any. If you must use it, isolate it and justify it in one line.
-- No async in v0.1.
+- No async in v2 (today).
 - Prefer Protocol interfaces over inheritance.
 - Avoid heavy refactors in unrelated areas.
 

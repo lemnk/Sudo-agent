@@ -16,3 +16,11 @@ build/
 
 # Local test artifacts
 sudo_audit.jsonl
+sudo_ledger.jsonl
+
+# Local keys / ledgers
+keys/
+*.pem
+*.key
+*.sqlite
+*.db

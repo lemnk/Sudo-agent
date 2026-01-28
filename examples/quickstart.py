@@ -1,10 +1,11 @@
-"""Quickstart demo for SudoAgent v0.1.1"""
+"""Quickstart demo for SudoAgent v2."""
+
+from __future__ import annotations
 
 import os
 
 from sudoagent import ApprovalDenied, Context, Decision, PolicyResult, SudoEngine
 from sudoagent.notifiers.base import Approver
-from sudoagent.policies import PolicyResult as PR
 
 
 class HighValueRefundPolicy:
@@ -27,7 +28,7 @@ class HighValueRefundPolicy:
 class AlwaysApprove(Approver):
     """Auto-approver for CI/demo runs."""
 
-    def approve(self, ctx: Context, result: PR, request_id: str) -> bool:
+    def approve(self, ctx: Context, result: PolicyResult, request_id: str) -> bool:
         print("[auto-approved for demo]")
         return True
 
@@ -37,7 +38,7 @@ def main() -> None:
 
     # Use auto-approve if SUDOAGENT_AUTO_APPROVE=1 (for CI/demo)
     approver = AlwaysApprove() if os.getenv("SUDOAGENT_AUTO_APPROVE") == "1" else None
-    sudo = SudoEngine(policy=policy, approver=approver)
+    sudo = SudoEngine(policy=policy, approver=approver, agent_id="demo:quickstart")
 
     @sudo.guard()
     def refund_user(user_id: str, refund_amount: float) -> None:
@@ -52,8 +53,11 @@ def main() -> None:
     except ApprovalDenied as e:
         print(f"Denied: {e}")
 
-    print("\nAudit log written to: sudo_audit.jsonl")
-    print("Tip: look for two entries per approved action (decision + outcome) linked by request_id.")
+    print("\nOutputs:")
+    print("  Audit log: sudo_audit.jsonl")
+    print("  Ledger:    sudo_ledger.jsonl")
+    print("\nVerify ledger:")
+    print("  sudoagent verify sudo_ledger.jsonl")
 
 
 if __name__ == "__main__":

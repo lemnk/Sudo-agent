@@ -2,6 +2,12 @@ include README.md
 include LICENSE
 include CHANGELOG.md
 include SECURITY.md
+include THREAT_MODEL.md
+include ROADMAP.md
+include SUPPORT.md
+include CONTRIBUTING.md
+include RELEASE.md
+include CODE_OF_CONDUCT.md
 
 recursive-include docs *.md *.png
 recursive-include examples *.py

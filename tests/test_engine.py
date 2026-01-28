@@ -69,6 +69,32 @@ class ControlledFailureLogger:
         self.entries.append(entry)
 
 
+class MemoryLedger:
+    """In-memory ledger stub for tests."""
+
+    def __init__(self, *, fail_on_event: str | None = None) -> None:
+        self.fail_on_event = fail_on_event
+        self.entries: list[dict[str, object]] = []
+
+    def append(self, entry: dict[str, object]) -> str:
+        if self.fail_on_event is not None and entry.get("event") == self.fail_on_event:
+            raise RuntimeError(f"ledger failed on {entry.get('event')}")
+        self.entries.append(entry)
+        return str(entry.get("decision_hash", "hash"))
+
+
+class BindingApprover:
+    """Approver that returns an explicit binding."""
+
+    def __init__(self, binding_override: dict[str, str]) -> None:
+        self.binding_override = binding_override
+        self.calls: list[str] = []
+
+    def approve(self, ctx: Context, result: PolicyResult, request_id: str) -> dict[str, object]:
+        self.calls.append(request_id)
+        return {"approved": True, "binding": self.binding_override}
+
+
 class WeirdPolicy:
     """Test policy that returns an invalid decision type."""
 
@@ -271,6 +297,7 @@ def test_require_approval_denied_raises_and_logs() -> None:
     assert logger.entries[0].request_id != ""
     assert logger.entries[0].metadata["approved"] is False
     assert logger.entries[0].metadata["policy_decision"] == "require_approval"
+    assert logger.entries[0].metadata["reason_code"] == "APPROVAL_DENIED"
 
 
 def test_policy_exception_fails_closed() -> None:
@@ -289,6 +316,7 @@ def test_policy_exception_fails_closed() -> None:
     assert logger.entries[0].decision == Decision.DENY
     assert logger.entries[0].reason == "policy evaluation failed"
     assert "error" in logger.entries[0].metadata
+    assert logger.entries[0].metadata["reason_code"] == "POLICY_EVALUATION_FAILED"
     assert logger.entries[0].request_id != ""
 
 
@@ -309,6 +337,7 @@ def test_approver_exception_fails_closed() -> None:
     assert logger.entries[0].decision == Decision.DENY
     assert logger.entries[0].reason == "approval process failed"
     assert "error" in logger.entries[0].metadata
+    assert logger.entries[0].metadata["reason_code"] == "APPROVAL_PROCESS_FAILED"
     assert logger.entries[0].request_id != ""
 
 
@@ -376,6 +405,170 @@ def test_outcome_log_failure_does_not_block_return() -> None:
     assert logger.entries[0].event == "decision"
 
 
+def test_decision_ledger_failure_blocks_execution() -> None:
+    """Ledger append failure on decision must block execution."""
+    policy = StubPolicy(Decision.ALLOW, "allowed")
+    ledger = MemoryLedger(fail_on_event="decision")
+    logger = MemoryLogger()
+    engine = SudoEngine(policy=policy, logger=logger, ledger=ledger, approver=StubApprover(False))
+
+    called = False
+
+    def sample_func() -> int:
+        nonlocal called
+        called = True
+        return 123
+
+    with pytest.raises(AuditLogError, match="Failed to write audit log"):
+        engine.execute(sample_func)
+
+    assert called is False
+    assert logger.entries == []
+    assert ledger.entries == []
+
+
+def test_outcome_ledger_failure_does_not_block_return() -> None:
+    """Outcome ledger append failure must not affect return value."""
+    policy = StubPolicy(Decision.ALLOW, "allowed")
+    ledger = MemoryLedger(fail_on_event="outcome")
+    logger = MemoryLogger()
+    engine = SudoEngine(policy=policy, logger=logger, ledger=ledger, approver=StubApprover(False))
+
+    def sample_func() -> int:
+        return 9
+
+    result = engine.execute(sample_func)
+
+    assert result == 9
+    # Decision recorded, outcome ledger failure swallowed
+    assert len(logger.entries) == 2
+    assert logger.entries[0].event == "decision"
+    assert logger.entries[1].event == "outcome"
+    assert len(ledger.entries) == 1  # decision only
+
+
+def test_approval_binding_mismatch_decision_hash_fails_closed() -> None:
+    policy = StubPolicy(Decision.REQUIRE_APPROVAL, "needs approval")
+    logger = MemoryLogger()
+    ledger = MemoryLedger()
+    mismatched_binding = {
+        "request_id": "wrong",
+        "policy_hash": "wrong",
+        "decision_hash": "wrong",
+    }
+    approver = BindingApprover(binding_override=mismatched_binding)
+    engine = SudoEngine(policy=policy, logger=logger, ledger=ledger, approver=approver)
+
+    def sample_func() -> int:
+        return 1
+
+    with pytest.raises(ApprovalDenied):
+        engine.execute(sample_func)
+
+    assert len(logger.entries) == 1
+    decision_entry = logger.entries[0]
+    assert decision_entry.event == "decision"
+    assert decision_entry.decision == Decision.DENY
+    assert decision_entry.metadata["approval_binding"] == mismatched_binding
+
+
+def test_approval_binding_mismatch_policy_hash_fails_closed() -> None:
+    class PolicyWithCode:
+        def evaluate(self, ctx: Context) -> PolicyResult:
+            return PolicyResult(decision=Decision.REQUIRE_APPROVAL, reason="needs approval", reason_code="X")
+
+    policy = PolicyWithCode()
+    logger = MemoryLogger()
+    ledger = MemoryLedger()
+    approver = BindingApprover(
+        binding_override={
+            "request_id": "placeholder",
+            "policy_hash": "different",
+            "decision_hash": "placeholder",
+        }
+    )
+    engine = SudoEngine(policy=policy, logger=logger, ledger=ledger, approver=approver)
+
+    def sample_func() -> int:
+        return 2
+
+    with pytest.raises(ApprovalDenied):
+        engine.execute(sample_func)
+
+    assert len(logger.entries) == 1
+    assert logger.entries[0].decision == Decision.DENY
+    assert logger.entries[0].metadata["approval_binding"]["policy_hash"] == "different"
+
+
+def test_reason_code_propagates_to_ledger_and_audit() -> None:
+    class PolicyWithReasonCode:
+        def evaluate(self, ctx: Context) -> PolicyResult:
+            return PolicyResult(
+                decision=Decision.ALLOW,
+                reason="allowed",
+                reason_code="ALLOW_TRUSTED_ACTION",
+            )
+
+    ledger = MemoryLedger()
+    logger = MemoryLogger()
+    engine = SudoEngine(policy=PolicyWithReasonCode(), logger=logger, ledger=ledger)
+
+    result = engine.execute(lambda: 1)
+
+    assert result == 1
+    assert len(ledger.entries) == 2
+    decision_entry = ledger.entries[0]
+    assert decision_entry["event"] == "decision"
+    assert decision_entry["decision"]["reason_code"] == "ALLOW_TRUSTED_ACTION"
+    audit_decision = logger.entries[0]
+    assert audit_decision.metadata["reason_code"] == "ALLOW_TRUSTED_ACTION"
+
+
+def test_ledger_entries_include_schema_and_ids() -> None:
+    class PolicyWithId:
+        policy_id = "policy:demo"
+
+        def evaluate(self, ctx: Context) -> PolicyResult:
+            return PolicyResult(
+                decision=Decision.REQUIRE_APPROVAL,
+                reason="needs approval",
+                reason_code="POLICY_REQUIRE_APPROVAL_HIGH_VALUE",
+            )
+
+    class ApproverWithId:
+        def approve(self, ctx: Context, result: PolicyResult, request_id: str) -> dict[str, object]:
+            return {"approved": True, "approver_id": "approver:1"}
+
+    ledger = MemoryLedger()
+    logger = MemoryLogger()
+    engine = SudoEngine(
+        policy=PolicyWithId(),
+        logger=logger,
+        ledger=ledger,
+        approver=ApproverWithId(),
+        agent_id="agent:demo",
+    )
+
+    result = engine.execute(lambda: 1)
+
+    assert result == 1
+    assert len(ledger.entries) == 2
+    decision_entry = ledger.entries[0]
+    assert decision_entry["schema_version"] == "2.0"
+    assert decision_entry["ledger_version"] == "2.0"
+    assert decision_entry["agent_id"] == "agent:demo"
+    assert decision_entry["decision"]["policy_id"] == "policy:demo"
+    assert decision_entry["approval"]["approver_id"] == "approver:1"
+    assert decision_entry["decision"]["reason_code"] == "POLICY_REQUIRE_APPROVAL_HIGH_VALUE"
+
+    outcome_entry = ledger.entries[1]
+    assert outcome_entry["schema_version"] == "2.0"
+    assert outcome_entry["ledger_version"] == "2.0"
+    assert outcome_entry["agent_id"] == "agent:demo"
+    assert outcome_entry["decision"]["policy_id"] == "policy:demo"
+    assert outcome_entry["decision"]["reason_code"] == "POLICY_REQUIRE_APPROVAL_HIGH_VALUE"
+
+
 # -----------------------------------------------------------------------------
 # v0.1.1: Value-based redaction
 # -----------------------------------------------------------------------------
@@ -419,6 +612,66 @@ def test_pem_value_redacted() -> None:
     assert pem not in str(decision_entry.metadata)
 
 
+def test_outcome_ledger_includes_redacted_args_kwargs() -> None:
+    policy = StubPolicy(Decision.ALLOW, "allowed")
+    logger = MemoryLogger()
+    ledger = MemoryLedger()
+    engine = SudoEngine(policy=policy, logger=logger, ledger=ledger, approver=StubApprover(False))
+
+    def sample_func(api_key: str, note: str) -> str:
+        return note
+
+    result = engine.execute(sample_func, "sk-secret", note="ok")
+    assert result == "ok"
+
+    assert len(ledger.entries) == 2
+    outcome_entry = ledger.entries[1]
+    metadata = outcome_entry.get("metadata")
+    assert isinstance(metadata, dict)
+    assert metadata["args"][0] == "[redacted]"
+    assert metadata["kwargs"]["note"] == "'ok'"
+
+
+def test_redaction_deterministic_across_calls() -> None:
+    policy = StubPolicy(Decision.ALLOW, "allowed")
+    logger = MemoryLogger()
+    engine = SudoEngine(policy=policy, logger=logger, approver=StubApprover(False))
+
+    def sample_func(token: str, secret: str) -> str:
+        return "ok"
+
+    engine.execute(sample_func, "sk-abc", secret="Bearer token-123")
+    engine.execute(sample_func, "sk-abc", secret="Bearer token-123")
+
+    decisions = [e for e in logger.entries if e.event == "decision"]
+    assert len(decisions) == 2
+    first_meta = decisions[0].metadata
+    second_meta = decisions[1].metadata
+    assert first_meta["args"] == second_meta["args"] == ["[redacted]"]
+    assert first_meta["kwargs"]["secret"] == second_meta["kwargs"]["secret"] == "[redacted]"
+
+
+def test_policy_receives_redacted_context() -> None:
+    class CapturingPolicy:
+        def __init__(self) -> None:
+            self.ctx: Context | None = None
+
+        def evaluate(self, ctx: Context) -> PolicyResult:
+            self.ctx = ctx
+            return PolicyResult(decision=Decision.DENY, reason="deny")
+
+    policy = CapturingPolicy()
+    logger = MemoryLogger()
+    engine = SudoEngine(policy=policy, logger=logger, approver=StubApprover(False))
+
+    with pytest.raises(ApprovalDenied):
+        engine.execute(lambda token, count: None, "sk-secret-key", count=7)
+
+    assert policy.ctx is not None
+    assert policy.ctx.args[0] == "[redacted]"
+    assert policy.ctx.kwargs["count"] == "7"
+
+
 # -----------------------------------------------------------------------------
 # v0.1.1: Unknown decision fails closed
 # -----------------------------------------------------------------------------
@@ -440,4 +693,3 @@ def test_unknown_decision_fails_closed() -> None:
     assert logger.entries[0].event == "decision"
     assert logger.entries[0].decision == Decision.DENY
     assert logger.entries[0].reason == "unknown decision type"
-

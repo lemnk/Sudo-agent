@@ -1,0 +1,1 @@
+"""Logger stubs for sudoagent."""

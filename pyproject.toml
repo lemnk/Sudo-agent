@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sudoagent"
-version = "0.2.0"
-description = "Policy-driven approval library with interactive flows and audit logging."
+version = "2.0.0"
+description = "Runtime guardrail for tool/function calls: policy, optional approval, and a verifiable ledger."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -15,6 +15,27 @@ dependencies = [
 authors = [
   { name = "Naol Beyene" },
 ]
+license = { file = "LICENSE" }
+keywords = ["agents", "policy", "approval", "audit", "ledger", "security"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Security",
+  "Topic :: System :: Logging",
+]
+
+[project.urls]
+Homepage = "https://github.com/lemnk/Sudo-agent"
+Repository = "https://github.com/lemnk/Sudo-agent"
+Issues = "https://github.com/lemnk/Sudo-agent/issues"
+Changelog = "https://github.com/lemnk/Sudo-agent/blob/main/CHANGELOG.md"
+Security = "https://github.com/lemnk/Sudo-agent/blob/main/SECURITY.md"
 
 [project.optional-dependencies]
 dev = [
@@ -22,6 +43,11 @@ dev = [
   "ruff",
   "mypy",
 ]
+crypto = ["cryptography>=41"]
+langchain = ["langchain"]
+crewai = ["crewai"]
+autogen = ["autogen"]
+all = ["cryptography>=41", "langchain", "crewai", "autogen"]
 
 [project.scripts]
 sudoagent = "sudoagent.cli:main"
