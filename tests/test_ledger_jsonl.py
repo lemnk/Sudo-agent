@@ -88,13 +88,16 @@ def test_partial_line_fails_verification(tmp_path: Path) -> None:
 
 
 def test_prev_hash_mismatch_is_detected(tmp_path: Path) -> None:
+    import re
+
     ledger = _write_sample_ledger(tmp_path / "ledger.jsonl")
     ledger_file = ledger.path
     lines = ledger_file.read_text(encoding="utf-8").splitlines()
     if len(lines) < 2:
         pytest.skip("ledger did not contain two lines")
-    # Flip the prev_entry_hash in second line to break chain
-    corrupted = lines[1].replace('"prev_entry_hash":null', '"prev_entry_hash":"bogus"')
+    # The second line has a real prev_entry_hash (not null), so use regex
+    # to replace whatever hash value is there with "bogus"
+    corrupted = re.sub(r'"prev_entry_hash":"[^"]+"', '"prev_entry_hash":"bogus"', lines[1])
     lines[1] = corrupted
     ledger_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
