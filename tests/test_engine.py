@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 
 from sudoagent import ApprovalDenied, ApprovalError, AuditLogError, PolicyError, SudoEngine
 from sudoagent.policies import PolicyResult
 from sudoagent.types import AuditEntry, Context, Decision
+from sudoagent.approvals_store import ApprovalStore
 
 
 class StubPolicy:
@@ -81,6 +84,27 @@ class MemoryLedger:
             raise RuntimeError(f"ledger failed on {entry.get('event')}")
         self.entries.append(entry)
         return str(entry.get("decision_hash", "hash"))
+
+
+class StubApprovalStore(ApprovalStore):
+    def __init__(self) -> None:
+        self.pending: list[str] = []
+        self.resolutions: list[tuple[str, str, str | None]] = []
+
+    def create_pending(
+        self, *, request_id: str, policy_hash: str, decision_hash: str, expires_at: datetime | None
+    ) -> None:
+        self.pending.append(request_id)
+
+    def resolve(
+        self,
+        *,
+        request_id: str,
+        state: str,
+        approver_id: str | None,
+        resolved_at: datetime | None = None,
+    ) -> None:
+        self.resolutions.append((request_id, state, approver_id))
 
 
 class BindingApprover:
@@ -693,3 +717,39 @@ def test_unknown_decision_fails_closed() -> None:
     assert logger.entries[0].event == "decision"
     assert logger.entries[0].decision == Decision.DENY
     assert logger.entries[0].reason == "unknown decision type"
+
+
+# -----------------------------------------------------------------------------
+# Approval store integration
+# -----------------------------------------------------------------------------
+
+
+def test_approval_store_records_pending_and_resolution() -> None:
+    policy = StubPolicy(Decision.REQUIRE_APPROVAL, "needs approval")
+    approver = StubApprover(approved=True)
+    logger = MemoryLogger()
+    store = StubApprovalStore()
+    engine = SudoEngine(policy=policy, logger=logger, approver=approver, approval_store=store)
+
+    result = engine.execute(lambda: 1)
+    assert result == 1
+    assert len(store.pending) == 1
+    assert len(store.resolutions) == 1
+    rid = store.pending[0]
+    assert store.resolutions[0] == (rid, "approved", None)
+
+
+def test_approval_store_records_denial() -> None:
+    policy = StubPolicy(Decision.REQUIRE_APPROVAL, "needs approval")
+    approver = StubApprover(approved=False)
+    logger = MemoryLogger()
+    store = StubApprovalStore()
+    engine = SudoEngine(policy=policy, logger=logger, approver=approver, approval_store=store)
+
+    with pytest.raises(ApprovalDenied):
+        engine.execute(lambda: 1)
+
+    assert len(store.pending) == 1
+    assert len(store.resolutions) == 1
+    rid = store.pending[0]
+    assert store.resolutions[0] == (rid, "denied", None)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 import json
-from typing import Any, Literal
+from typing import Any, Literal, NotRequired, TypedDict, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -118,3 +118,87 @@ class AuditEntry(BaseModel):
     def to_json_line(self) -> str:
         """Render the entry as a single JSON line."""
         return json.dumps(self.model_dump(mode="json", exclude_none=True))
+
+
+# -------- Ledger and receipt typed structures --------
+
+
+class DecisionRecord(TypedDict):
+    effect: str
+    reason: str
+    reason_code: str | None
+    policy_id: str
+    policy_hash: str
+    decision_hash: str
+
+
+class ApprovalRecord(TypedDict, total=False):
+    binding: dict[str, str] | None
+    approved: bool
+    approver_id: str | None
+    policy_decision: str | None
+
+
+class BudgetRecord(TypedDict, total=False):
+    budget_key: str | None
+    cost: int | None
+
+
+class LedgerDecisionEntry(TypedDict):
+    schema_version: str
+    ledger_version: str
+    prev_entry_hash: str | None
+    entry_hash: str | None
+    entry_signature: NotRequired[str | None]
+    key_id: NotRequired[str | None]
+    request_id: str
+    created_at: str
+    event: Literal["decision"]
+    action: str
+    agent_id: str
+    decision: DecisionRecord
+    approval: ApprovalRecord | None
+    metadata: dict[str, Any]
+    budget: NotRequired[BudgetRecord | None]
+
+
+class OutcomeRecord(TypedDict, total=False):
+    outcome: Literal["success", "error"]
+    reason: str
+    reason_code: str | None
+    error_type: str | None
+    error: str | None
+
+
+class LedgerOutcomeEntry(TypedDict):
+    schema_version: str
+    ledger_version: str
+    prev_entry_hash: str | None
+    entry_hash: str | None
+    entry_signature: NotRequired[str | None]
+    key_id: NotRequired[str | None]
+    request_id: str
+    created_at: str
+    event: Literal["outcome"]
+    action: str
+    agent_id: str
+    decision: dict[str, str | None]
+    result: OutcomeRecord
+    parameters: dict[str, Any]
+    metadata: NotRequired[dict[str, Any]]
+
+
+class LedgerCheckpointEntry(TypedDict, total=False):
+    schema_version: str
+    ledger_version: str
+    prev_entry_hash: str | None
+    entry_hash: str | None
+    event: Literal["checkpoint"]
+    log_id: str
+    entry_index: int
+    created_at: str
+    signature: str | None
+    key_id: str | None
+
+
+LedgerEntry = Union[LedgerDecisionEntry, LedgerOutcomeEntry, LedgerCheckpointEntry]

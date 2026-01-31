@@ -14,10 +14,12 @@ build/
 
 .cursor/
 .cursorrules
+.DS_Store
 
 # Local test artifacts
 sudo_audit.jsonl
 sudo_ledger.jsonl
+*.jsonl
 
 # Local keys / ledgers
 keys/
@@ -25,3 +27,4 @@ keys/
 *.key
 *.sqlite
 *.db
+.venv_release/

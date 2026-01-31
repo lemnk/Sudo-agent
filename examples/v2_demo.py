@@ -19,7 +19,7 @@ class HighValuePolicy:
 
 
 class ScriptedApprover(Approver):
-    """Approver that returns scripted approvals for demos/tests."""
+    """Approver that returns scripted approvals for /tests."""
 
     def __init__(self, outcomes: Iterator[bool]) -> None:
         self.outcomes = outcomes

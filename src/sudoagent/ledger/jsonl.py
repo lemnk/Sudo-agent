@@ -11,13 +11,10 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterator, Protocol, TextIO, TypeAlias, cast
 
-from sudoagent.ledger.canonical import (
-    CanonicalizationError,
-    canonical_dumps,
-    canonical_sha256_hex,
-)
+from sudoagent.ledger.jcs import canonical_bytes, sha256_hex
 from sudoagent.ledger.signing import sign_entry_hash, verify_entry_hash
 from sudoagent.ledger.versioning import LEDGER_VERSION, SCHEMA_VERSION
+from sudoagent.types import LedgerEntry
 
 JSONPrimitive: TypeAlias = str | int | bool | None | Decimal
 JSONNumber: TypeAlias = str | int | Decimal
@@ -45,25 +42,25 @@ class JSONLLedger:
     path: Path
     signing_key: SigningKey | None = None
 
-    def append(self, entry: dict[str, JSONValue]) -> str:
+    def append(self, entry: LedgerEntry) -> str:
         """Append an entry, computing chain hashes atomically."""
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with _locked_file(self.path) as handle:
                 last_hash = _read_last_entry_hash(handle)
-                prepared = _prepare_entry(entry, last_hash)
+                prepared = _prepare_entry(cast(dict[str, JSONValue], entry), last_hash)
                 entry_hash = prepared.get("entry_hash")
                 if not isinstance(entry_hash, str):
                     raise LedgerWriteError("entry_hash missing after preparation")
                 if self.signing_key is not None:
                     prepared["entry_signature"] = sign_entry_hash(self.signing_key, entry_hash)
-                line = canonical_dumps(prepared)
+                line = canonical_bytes(prepared).decode("utf-8")
                 handle.seek(0, os.SEEK_END)
                 handle.write(line + "\n")
                 handle.flush()
                 os.fsync(handle.fileno())
                 return entry_hash
-        except (OSError, CanonicalizationError, LedgerError) as exc:
+        except (OSError, LedgerError) as exc:
             raise LedgerWriteError(str(exc)) from exc
 
     def verify(self, *, public_key: VerifyKey | None = None) -> None:
@@ -73,7 +70,7 @@ class JSONLLedger:
                 return
             with _locked_file(self.path) as handle:
                 _verify_stream(handle, public_key=public_key)
-        except (OSError, CanonicalizationError, LedgerError, json.JSONDecodeError) as exc:
+        except (OSError, LedgerError, json.JSONDecodeError) as exc:
             raise LedgerVerificationError(str(exc)) from exc
 
 
@@ -145,20 +142,41 @@ def _prepare_entry(entry: dict[str, JSONValue], prev_hash: str | None) -> dict[s
     candidate = copy.deepcopy(entry)
     candidate["prev_entry_hash"] = prev_hash
     candidate["entry_hash"] = None
-    entry_hash = canonical_sha256_hex(candidate)
+    entry_hash = sha256_hex(candidate)
     candidate["entry_hash"] = entry_hash
     return candidate
 
 
 def _read_last_entry_hash(handle: TextIO) -> str | None:
-    handle.seek(0)
-    last_line = None
-    for line in handle:
-        if line.strip():
-            last_line = line.rstrip("\n")
-    if last_line is None:
+    """Return the entry_hash from the last non-empty line without scanning the whole file."""
+    # Use the underlying buffered file to seek from the end (faster for large files).
+    fb = handle.buffer  # type: ignore[attr-defined]
+    fb.seek(0, os.SEEK_END)
+    size = fb.tell()
+    if size == 0:
         return None
-    last_entry = json.loads(last_line, parse_float=Decimal, parse_int=int)
+
+    chunk_size = 4096
+    data = b""
+    pos = size
+    while pos > 0:
+        read_size = chunk_size if pos >= chunk_size else pos
+        pos -= read_size
+        fb.seek(pos)
+        chunk = fb.read(read_size)
+        data = chunk + data
+        # Stop once we have at least one newline before the end or we've reached the start.
+        if b"\n" in data[:-1] or pos == 0:
+            break
+
+    lines = data.rstrip(b"\n").split(b"\n")
+    if not lines:
+        return None
+    last_line = lines[-1].strip()
+    if not last_line:
+        return None
+
+    last_entry = json.loads(last_line.decode("utf-8"), parse_float=Decimal, parse_int=int)
     if not isinstance(last_entry, dict):
         raise LedgerVerificationError("ledger line is not an object")
     entry_hash = last_entry.get("entry_hash")
@@ -179,7 +197,7 @@ def _verify_stream(handle: TextIO, *, public_key: VerifyKey | None = None) -> No
         entry = json.loads(line, parse_float=Decimal, parse_int=int)
         if not isinstance(entry, dict):
             raise LedgerVerificationError(f"line {line_number} is not an object")
-        if canonical_dumps(entry) != line:
+        if canonical_bytes(entry).decode("utf-8") != line:
             raise LedgerVerificationError(f"line {line_number} is not canonical")
 
         schema_version = entry.get("schema_version")
@@ -224,7 +242,7 @@ def _verify_stream(handle: TextIO, *, public_key: VerifyKey | None = None) -> No
         # Remove entry_signature entirely (not set to None) since the original
         # hash was computed before entry_signature was added to the entry
         entry_with_null.pop("entry_signature", None)
-        calculated_hash = canonical_sha256_hex(entry_with_null)
+        calculated_hash = sha256_hex(entry_with_null)
 
         actual_hash = entry.get("entry_hash")
         if not isinstance(actual_hash, str):

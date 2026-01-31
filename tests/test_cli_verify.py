@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from sudoagent.cli import main
-from sudoagent.ledger.canonical import canonical_dumps, canonical_sha256_hex
+from sudoagent.ledger.jcs import canonical_bytes, sha256_hex
 from sudoagent.ledger.jsonl import JSONLLedger
 
 
@@ -68,8 +68,8 @@ def test_verify_failure_on_version_mismatch(
     entry = json.loads(line)
     entry["schema_version"] = "1.0"
     entry["entry_hash"] = None
-    entry["entry_hash"] = canonical_sha256_hex(entry)
-    ledger_path.write_text(canonical_dumps(entry) + "\n", encoding="utf-8")
+    entry["entry_hash"] = sha256_hex(entry)
+    ledger_path.write_text(canonical_bytes(entry).decode("utf-8") + "\n", encoding="utf-8")
 
     code = main(["verify", str(ledger_path)])
 

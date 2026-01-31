@@ -37,13 +37,29 @@ pip install "sudoagent[crypto]"
 pytest -q
 ```
 
+## Does SudoAgent support asyncio?
+
+The core engine is synchronous today to keep the fail-closed path simple and compatible everywhere. In async apps you can run guards in a thread pool (e.g., anyio.to_thread.run_sync / loop.run_in_executor) to avoid blocking the event loop. A native async API is on the roadmap; we won't claim it until it exists.
+
+## Can I change policy without a code deploy?
+
+Right now policies are Python classes for determinism and testability. The roadmap includes loading signed policy bundles (e.g., Rego/OPA or signed YAML) so non-developers can promote changes without shipping new code. Until then, treat policy updates like any other code change with tests and review.
+
 ## When should I use SQLite instead of JSONL?
 
 - JSONL (`JSONLLedger`) is simple and inspectable, best for single-process and local/dev.
 - SQLite (`SQLiteLedger`) is better for multi-process on one host (WAL mode) and for querying.
+- Use `persistent_budget` and `SQLiteApprovalStore` if you need budgets/approvals to survive restarts.
+
+## Is there an “enterprise” version?
+
+The open-source engine is the core: synchronous guardrail + tamper-evident ledger. A future commercial control plane (“gateway”) may add multi-host ledgering, richer approvals, and SIEM/GRC integrations. There is no hidden v3 of the OSS engine; the current v2 remains supported.
+
+## Do I need SudoAgent if I already built this?
+
+If you already have budgets, approvals, tamper-evident logging with hash chaining, signed receipts, and verification across your services, you don’t need SudoAgent. It exists so most teams don’t have to re-implement and re-audit that stack everywhere.
 
 ## How do I set stable identities in the ledger?
 
 - Pass a stable `agent_id` to `SudoEngine(...)`.
 - Set `policy_id` by defining a `policy_id` attribute on your policy class, or rely on the default fully qualified class name.
-

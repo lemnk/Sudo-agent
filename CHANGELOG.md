@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLI export/filter/search/verify subcommands plus keygen and receipt commands.
 - Documentation: quickstart, adapters guide, v2 ledger spec, OSS guide, threat model, FAQ.
 - Tests: expanded ledger/CLI/signing coverage; CI installs dev+crypto extras.
+- RFC 8785 (JCS) canonicalization for all hashed/signed payloads with golden vectors.
+- Engine orchestration refactor (execute split into helpers, fail-closed logging).
+- Durable state helpers: SQLite budget manager (`persistent_budget`) and SQLite approval store.
+- Repo hygiene: tightened `.gitignore`, removed committed artifacts, pre-commit + Definition of Done.
+- Benchmark helper (`bench_latency.py`) for local latency measurement.
 
 ### Breaking
 - v1 ledger and API semantics replaced by v2 schema/versioning (see `docs/v2_ledger.md`).

@@ -75,5 +75,5 @@ SudoAgent writes two different artifacts by default:
 
 Notes:
 - JSONL is not a distributed system. A compromised host can delete the ledger entirely.
-- For multi-process on one host, prefer `SQLiteLedger` (WAL).
+- For multi-process on one host, prefer `SQLiteLedger` (WAL) and the durable budget/approval stores (`persistent_budget`, `SQLiteApprovalStore`). Shard by domain/env (e.g., prod-payments vs prod-support) to avoid a single hot file.
 - For entry signatures, install `sudoagent[crypto]` and protect private keys.

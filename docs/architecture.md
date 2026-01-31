@@ -64,6 +64,7 @@ By default SudoAgent writes `sudo_ledger.jsonl` using `JSONLLedger`, which:
 - optionally signs entries with Ed25519 when a signing key is configured
 
 For a single-host multi-process deployment, `SQLiteLedger` uses WAL mode.
+If you need budgets/approvals to persist across restarts, use `SQLiteLedger` plus the durable budget/approval stores (`persistent_budget`, `SQLiteApprovalStore`).
 
 ### AuditLogger (operational)
 

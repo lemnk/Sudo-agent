@@ -5,7 +5,13 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from sudoagent import ApprovalDenied, SudoEngine
-from sudoagent.budgets import BudgetError, BudgetExceeded, BudgetManager, BudgetStateError
+from sudoagent.budgets import (
+    BudgetError,
+    BudgetExceeded,
+    BudgetManager,
+    BudgetStateError,
+    SQLiteBudgetManager,
+)
 from sudoagent.policies import PolicyResult
 from sudoagent.types import AuditEntry, Context, Decision
 
@@ -192,3 +198,39 @@ def test_budget_cost_override_affects_limits() -> None:
 
     with pytest.raises(ApprovalDenied, match="budget exceeded"):
         engine.execute(lambda: 2, budget_cost=1)
+
+
+def test_sqlite_budget_persists_across_instances(tmp_path):
+    db = tmp_path / "budget.sqlite"
+    mgr = SQLiteBudgetManager(db, agent_limit=2, tool_limit=None, window_seconds=60)
+    mgr.check("req-1", agent="agent-a", tool="t1", cost=1)
+    mgr.commit("req-1")
+
+    mgr2 = SQLiteBudgetManager(db, agent_limit=2, tool_limit=None, window_seconds=60)
+    with pytest.raises(BudgetExceeded):
+        mgr2.check("req-2", agent="agent-a", tool="t1", cost=2)
+
+
+def test_sqlite_budget_idempotent_commit(tmp_path):
+    db = tmp_path / "budget.sqlite"
+    mgr = SQLiteBudgetManager(db, agent_limit=3, tool_limit=None, window_seconds=60)
+    mgr.check("req-1", agent="agent-a", tool="t1", cost=2)
+    mgr.commit("req-1")
+    mgr.commit("req-1")  # second commit should not raise
+
+
+def test_sqlite_budget_window_prune(tmp_path):
+    db = tmp_path / "budget.sqlite"
+    base = datetime(2026, 1, 25, 12, 0, 0, tzinfo=timezone.utc)
+    current = {"now": base}
+
+    def now() -> datetime:
+        return current["now"]
+
+    mgr = SQLiteBudgetManager(db, agent_limit=2, tool_limit=None, window_seconds=60, now=now)
+    mgr.check("req-1", agent="agent-a", tool="t1", cost=2)
+    mgr.commit("req-1")
+
+    current["now"] = current["now"] + timedelta(seconds=120)
+    mgr._prune(now())
+    mgr.check("req-2", agent="agent-a", tool="t1", cost=2)

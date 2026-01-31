@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from sudoagent.ledger.jsonl import JSONLLedger, LedgerVerificationError
+from sudoagent.ledger.jsonl import (
+    JSONLLedger,
+    LedgerVerificationError,
+    _locked_file,
+    _read_last_entry_hash,
+)
 
 
 def _entry(request_id: str, kind: str) -> dict[str, object]:
@@ -150,3 +155,17 @@ def test_two_ledger_handles_append_sequentially(tmp_path: Path) -> None:
 
     # Both entries must verify and be in correct chain order.
     ledger_a.verify()
+
+
+def test_read_last_entry_hash_reads_tail_only(tmp_path: Path) -> None:
+    path = tmp_path / "ledger.jsonl"
+    ledger = JSONLLedger(path)
+    first_hash = ledger.append(_entry("req-1", "decision"))
+    second_hash = ledger.append(_entry("req-2", "decision"))
+
+    # Use locked handle to exercise the tail-reading helper
+    with _locked_file(path) as handle:
+        last_hash = _read_last_entry_hash(handle)
+
+    assert last_hash == second_hash
+    assert last_hash != first_hash

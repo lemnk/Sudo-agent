@@ -28,9 +28,36 @@
   </a>
 </p>
 
-A Python library that guards function calls at runtime with policy evaluation, optional human approval, and a verifiable ledger.
+SudoAgent is the smallest possible boundary that gives you verifiable, fail-closed control (policy/approvals/budgets) plus tamper-evident evidence and receipts—so you don’t have to re-implement and re-audit that stack in every service.
 
 Version: 2.0.0 (v2 ledger/verification)
+
+## Who is this for?
+
+- Teams letting agents or automation call real systems (payments, prod data, infra) and need a fail-closed boundary.
+- Engineers who want proof an action was authorized (and, if required, approved) before it executed.
+- Security/ops who need tamper-evident evidence they can verify later.
+- If you already have budgets, approvals, tamper-evident logging, receipts, and verification wired correctly across your services, you don’t need SudoAgent.
+
+## What it is / isn’t
+- It is: a synchronous authorization boundary around tool/function calls with deterministic redaction and a tamper-evident ledger.
+- It is not: an agent orchestrator, scheduler, or sandbox. Policies are Python today for determinism; signed policy bundles (OPA/Rego or YAML) are a roadmap item for code-less changes.
+
+## Repository map (start here)
+
+- `src/sudoagent/` — core SDK (engine, ledger backends, budgets, approvals, adapters).
+- `examples/` — runnable demos (quickstart, workflow demo).
+- `tests/` — pytest suite (engine, ledger verification, adapters).
+- `docs/` — guides and references (quickstart, OSS guide, ledger spec, architecture, FAQ).
+- `gateway/` — _reserved for future control-plane work_ (not present today).
+
+## Start here (docs)
+
+- Quick intro: [`docs/quickstart.md`](docs/quickstart.md)
+- OSS overview: [`docs/oss_guide.md`](docs/oss_guide.md)
+- How the ledger works: [`docs/v2_ledger.md`](docs/v2_ledger.md)
+- Architecture: [`docs/architecture.md`](docs/architecture.md)
+- Operations/FAQ: [`docs/faq.md`](docs/faq.md)
 
 ## What it does
 
@@ -40,9 +67,17 @@ SudoAgent wraps a function call and enforces one of three outcomes:
 - **deny**: block the call, raise `ApprovalDenied`
 - **require_approval**: request approval; executes only if approved
 
-By default, SudoAgent writes two local files:
+Defaults (dev-friendly / quickstart):
 - Audit log: `sudo_audit.jsonl` (operational record; not tamper-evident)
-- Ledger: `sudo_ledger.jsonl` (tamper-evident evidence; verifiable with `sudoagent verify`)
+- Ledger: `sudo_ledger.jsonl` (tamper-evident but dev-only; single-writer, local)
+- Budgets/approvals: in-memory
+
+Recommended default for real use or multi-process on one host:
+- Evidence: `SQLiteLedger(Path("sudo_ledger.sqlite"))` (WAL, fsync)
+- Budgets: `from sudoagent.budgets import persistent_budget` and pass `budget_manager=persistent_budget("budgets.sqlite", agent_limit=..., tool_limit=...)`
+- Approvals: `approval_store=SQLiteApprovalStore(Path("approvals.sqlite"))` for durable state/timeouts
+
+Sharding guidance: use one ledger file per domain/env (e.g., `ledgers/prod-payments.sqlite`, `ledgers/prod-support.sqlite`) to avoid a global mutex and keep verification fast.
 
 ## How it works
 
@@ -68,6 +103,7 @@ pip install sudoagent
 Optional extras:
 - Signing / receipts: `pip install "sudoagent[crypto]"`
 - Adapters: `pip install "sudoagent[langchain]"`, `pip install "sudoagent[crewai]"`, `pip install "sudoagent[autogen]"`
+- SQLite helpers (if you prefer explicit deps): standard library only; no extra install required.
 
 Dev install:
 
@@ -89,11 +125,16 @@ python examples/quickstart.py
 What happens:
 - A low-value refund is allowed automatically.
 - A high-value refund triggers an interactive approval prompt.
-- Decisions/outcomes are written to `sudo_audit.jsonl` and `sudo_ledger.jsonl`.
+- Decisions/outcomes are written to `sudo_audit.jsonl` and `sudo_ledger.jsonl` (dev-only path for the demo).
+
+Prefer SQLite for anything real:
+```bash
+SUDOAGENT_LEDGER=sqlite python examples/workflow_demo.py  # or instantiate SQLiteLedger in your code
+```
 
 For a 5-minute walkthrough and production checklist, see [docs/quickstart.md](docs/quickstart.md).
 OSS guide: [docs/oss_guide.md](docs/oss_guide.md).
-FAQ / gotchas: [docs/faq.md](docs/faq.md).
+FAQ / gotchas: [docs/faq.md](docs/faq.md) (includes asyncio guidance).
 
 Full workflow demo (approval + budgets + verify):
 
@@ -141,6 +182,11 @@ On Windows PowerShell:
 $env:SUDOAGENT_AUTO_APPROVE="1"; python examples/quickstart.py
 ```
 
+## Examples at a glance
+- `examples/quickstart.py`: allow + approval using JSONL defaults.
+- `examples/v2_demo.py`: shows the v2 ledger hashing/verification flow.
+- `examples/workflow_demo.py`: approval + budgets + verification; set `SUDOAGENT_AUTO_APPROVE=1` to auto-approve in CI.
+
 ## Basic usage
 
 ```python
@@ -174,7 +220,7 @@ except ApprovalDenied as e:
 - **Policy**: returns `ALLOW`, `DENY`, or `REQUIRE_APPROVAL` with a reason.
 - **Approver**: handles the approval step. Default is `InteractiveApprover` (terminal y/n).
 - **AuditLogger**: writes audit entries. Default is `JsonlAuditLogger`.
-- **Budgets**: optional rate limits via `BudgetManager` (pass `budget_cost` to `execute`/`guard` for spend accounting).
+- **Budgets**: optional rate limits via `BudgetManager` (pass `budget_cost` to `execute`/`guard` for spend accounting). Use `persistent_budget(...)` for durable counters.
 - **Fail-closed**: if policy, approval, or decision logging fails, execution is blocked.
 - **decision_hash**: SHA-256 over canonical decision payload (request_id, intent, parameters, actor, policy_hash).
 - **policy_id**: stable policy identifier (class name by default).
@@ -229,6 +275,7 @@ SudoAgent is designed for dependency injection:
 Notes:
 - Policy is required at construction. Pass `AllowAllPolicy()` explicitly for permissive mode.
 - `InteractiveApprover` is intended for local development. For production, implement a custom approver.
+- For persistence: prefer `SQLiteLedger`, `persistent_budget`, and `SQLiteApprovalStore` in multi-process or long-running scenarios.
 
 Adapters:
 - LangChain: `pip install "sudoagent[langchain]"` + [docs/adapters.md](docs/adapters.md)
@@ -238,6 +285,10 @@ Adapters:
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) for a short, best-effort plan.
+
+Big picture:
+- OSS “embedded engine” stays: synchronous guard + tamper-evident ledger, local by default, SQLite recommended for multi-process.
+- Future “gateway/control plane” (commercial) will layer on: multi-host ledger, richer approvals, SIEM/export integrations, hosted ops. No timelines or promises here; OSS remains usable on its own.
 
 ## Support policy
 

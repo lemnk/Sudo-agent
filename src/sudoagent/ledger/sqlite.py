@@ -8,9 +8,10 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterator, TypeAlias
 
-from .canonical import CanonicalizationError, canonical_dumps, canonical_sha256_hex
+from .jcs import canonical_bytes, sha256_hex
 from .signing import sign_entry_hash, verify_entry_hash
 from .versioning import LEDGER_VERSION, SCHEMA_VERSION
+from sudoagent.types import LedgerEntry
 
 JSONPrimitive: TypeAlias = str | int | bool | None | Decimal
 JSONNumber: TypeAlias = str | int | Decimal
@@ -38,7 +39,7 @@ class SQLiteLedger:
     path: Path
     signing_key: SigningKey | None = None
 
-    def append(self, entry: dict[str, JSONValue]) -> str:
+    def append(self, entry: LedgerEntry) -> str:
         """Append an entry, computing chain hashes atomically."""
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -52,14 +53,14 @@ class SQLiteLedger:
                     raise LedgerWriteError("entry_hash missing after preparation")
                 if self.signing_key is not None:
                     prepared["entry_signature"] = sign_entry_hash(self.signing_key, entry_hash)
-                entry_json = canonical_dumps(prepared)
+                entry_json = canonical_bytes(prepared).decode("utf-8")
                 conn.execute(
                     "INSERT INTO ledger (entry_json, entry_hash, prev_entry_hash) VALUES (?, ?, ?)",
                     (entry_json, entry_hash, prev_hash),
                 )
                 conn.commit()
                 return entry_hash
-        except (sqlite3.Error, CanonicalizationError, LedgerError) as exc:
+        except (sqlite3.Error, LedgerError) as exc:
             raise LedgerWriteError(str(exc)) from exc
 
     def verify(self, *, public_key: VerifyKey | None = None) -> None:
@@ -73,7 +74,7 @@ class SQLiteLedger:
                     "SELECT entry_json, entry_hash, prev_entry_hash FROM ledger ORDER BY id ASC"
                 ).fetchall()
                 _verify_rows(((row[0], row[1], row[2]) for row in rows), public_key=public_key)
-        except (sqlite3.Error, CanonicalizationError, LedgerError, json.JSONDecodeError) as exc:
+        except (sqlite3.Error, LedgerError, json.JSONDecodeError) as exc:
             raise LedgerVerificationError(str(exc)) from exc
 
 
@@ -97,13 +98,13 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     )
 
 
-def _prepare_entry(entry: dict[str, JSONValue], prev_hash: str | None) -> dict[str, JSONValue]:
-    candidate = copy.deepcopy(entry)
+def _prepare_entry(entry: LedgerEntry, prev_hash: str | None) -> dict[str, JSONValue]:
+    candidate = copy.deepcopy(entry)  # type: ignore[arg-type]
     candidate["prev_entry_hash"] = prev_hash
     candidate["entry_hash"] = None
-    entry_hash = canonical_sha256_hex(candidate)
+    entry_hash = sha256_hex(candidate)
     candidate["entry_hash"] = entry_hash
-    return candidate
+    return candidate  # type: ignore[return-value]
 
 
 def _read_last_entry_hash(conn: sqlite3.Connection) -> str | None:
@@ -131,7 +132,7 @@ def _verify_rows(
         entry = json.loads(entry_json, parse_float=Decimal, parse_int=int)
         if not isinstance(entry, dict):
             raise LedgerVerificationError(f"row {line_number} is not an object")
-        if canonical_dumps(entry) != entry_json:
+        if canonical_bytes(entry).decode("utf-8") != entry_json:
             raise LedgerVerificationError(f"row {line_number} is not canonical")
 
         schema_version = entry.get("schema_version")
@@ -175,7 +176,7 @@ def _verify_rows(
         entry_with_null["entry_hash"] = None
         if "entry_signature" in entry_with_null:
             entry_with_null["entry_signature"] = None
-        calculated_hash = canonical_sha256_hex(entry_with_null)
+        calculated_hash = sha256_hex(entry_with_null)
 
         actual_hash = entry.get("entry_hash")
         if not isinstance(actual_hash, str):

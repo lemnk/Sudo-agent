@@ -69,3 +69,18 @@ def test_tamper_detection_on_hash_columns(tmp_path: Path) -> None:
 
     with pytest.raises(LedgerVerificationError):
         ledger.verify()
+
+
+def test_prev_hash_links_entries(tmp_path: Path) -> None:
+    ledger = SQLiteLedger(tmp_path / "ledger.db")
+    first_hash = ledger.append(_entry("req-1", "decision", "dh-1"))
+    second_hash = ledger.append(_entry("req-1", "outcome", "dh-1"))
+
+    conn = sqlite3.connect(tmp_path / "ledger.db")
+    rows = conn.execute("SELECT prev_entry_hash, entry_hash FROM ledger ORDER BY id ASC").fetchall()
+    conn.close()
+
+    assert rows[0][0] is None
+    assert rows[0][1] == first_hash
+    assert rows[1][0] == first_hash
+    assert rows[1][1] == second_hash

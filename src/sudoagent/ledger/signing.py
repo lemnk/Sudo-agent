@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import base64
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    # Optional dependency. Keep the import in TYPE_CHECKING for better editor
-    # support when installed, but don't require it for type-checking the repo.
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import (  # type: ignore[import-not-found]
+    # Optional dependency. Imported for type checking/editor support; not required at runtime.
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
         Ed25519PrivateKey,
         Ed25519PublicKey,
     )
+else:  # pragma: no cover - runtime stubs when cryptography is absent
+    Ed25519PrivateKey = Any  # type: ignore[assignment]
+    Ed25519PublicKey = Any  # type: ignore[assignment]
 
 _ed25519: Any | None = None
 _serialization: Any | None = None
@@ -20,8 +22,8 @@ try:
     from cryptography.hazmat.primitives import serialization as _serialization_mod  # type: ignore[import-not-found]
     from cryptography.hazmat.primitives.asymmetric import ed25519 as _ed25519_mod  # type: ignore[import-not-found]
 
-    _serialization = _serialization_mod
-    _ed25519 = _ed25519_mod
+    _serialization = cast(Any, _serialization_mod)
+    _ed25519 = cast(Any, _ed25519_mod)
 except ModuleNotFoundError:
     pass
 

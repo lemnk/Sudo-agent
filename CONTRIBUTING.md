@@ -98,6 +98,16 @@ ruff check . && mypy src && pytest -q
 ruff check .; mypy src; pytest -q
 ```
 
+### Pre-commit
+
+Install hooks once:
+
+```bash
+pre-commit install
+```
+
+The hooks run `ruff` (lint/format), `mypy`, full `pytest`, and the canonicalization vectors. CI enforces the same gates.
+
 ## How to contribute
 
 ### 1) Fix a bug
@@ -165,6 +175,15 @@ When you add behavior:
 - Keep tests deterministic and fast.
 
 ## Commits and PRs
+
+### Definition of Done (for code changes)
+
+- `ruff`, `mypy`, `pytest`, and `tests/test_jcs_vectors.py` all green locally (or via `pre-commit run --all-files`).
+- No new committed artifacts (no ledgers, venvs, dist/, __pycache__, *.sqlite).
+- Evidence paths fail-closed: policy/approval/budget/ledger errors must block execution, not silently pass.
+- Canonicalization: any hashed/signed content must use the JCS helper (`sudoagent.ledger.jcs`); do not hand-roll JSON.
+- Tests added/updated to cover behavior changes (allow/deny/require-approval paths as applicable).
+- Docs updated if user-facing behavior or guarantees change.
 
 ### Branches
 
