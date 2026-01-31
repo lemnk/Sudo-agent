@@ -888,6 +888,8 @@ class SudoEngine:
             "ledger_version": LEDGER_VERSION,
             "prev_entry_hash": None,
             "entry_hash": None,
+            "entry_signature": None,
+            "key_id": None,
             "request_id": request_id,
             "created_at": decision_time,
             "event": "decision",
@@ -903,6 +905,7 @@ class SudoEngine:
             },
             "approval": approval_block,
             "metadata": metadata,
+            "budget": None,
         }
 
     def _build_outcome_ledger_entry(
@@ -927,6 +930,8 @@ class SudoEngine:
             "ledger_version": LEDGER_VERSION,
             "prev_entry_hash": None,
             "entry_hash": None,
+            "entry_signature": None,
+            "key_id": None,
             "request_id": request_id,
             "created_at": _format_timestamp(datetime.now(timezone.utc)),
             "event": "outcome",
