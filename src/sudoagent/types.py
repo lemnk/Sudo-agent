@@ -5,12 +5,15 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 import json
-from typing import Any, Literal, TypedDict, Union
+import sys
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, Union
 
-try:  # py311+
-    from typing import NotRequired  # type: ignore[attr-defined]
-except ImportError:  # py310 and earlier
-    from typing_extensions import NotRequired  # type: ignore[assignment]
+if TYPE_CHECKING:
+    from typing_extensions import NotRequired
+elif sys.version_info >= (3, 11):  # pragma: no cover
+    from typing import NotRequired
+else:  # pragma: no cover
+    from typing_extensions import NotRequired
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
