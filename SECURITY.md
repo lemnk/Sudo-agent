@@ -4,10 +4,10 @@
 
 | Version | Supported |
 |---------|-----------|
-| 0.2.x   | Yes       |
-| < 0.2   | No        |
+| 2.x     | Yes       |
+| < 2.0   | No        |
 
-Only the latest release in the 0.2.x line receives security fixes.
+Only the latest release in the 2.x line receives security fixes.
 
 ---
 
@@ -51,14 +51,14 @@ Include:
 Assumptions:
 - Guarded functions are trusted code
 - Inputs (args/kwargs) may be attacker-controlled
-- Approver is a human in the same terminal session
+- Approver may be synchronous (terminal) or async (service-integrated)
 - Audit log and ledger are local files by default
 
 Defenses:
 - Fail-closed on policy, approval, or decision logging errors
 - Terminal output escaped to prevent markup injection
 - Common secret patterns redacted in logs and prompts
- - Ledger uses canonical JSON + SHA-256 hash chaining; verification detects tampering/reordering/gaps
+- Ledger uses canonical JSON + SHA-256 hash chaining; verification detects tampering/reordering/gaps
 
 Non-goals:
 - Preventing side effects inside the guarded function

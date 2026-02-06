@@ -56,3 +56,9 @@ sudoagent = "sudoagent.cli:main"
 
 [tool.setuptools.package-data]
 sudoagent = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"
+tmp_path_retention_policy = "all"
+tmp_path_retention_count = 0

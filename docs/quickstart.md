@@ -48,13 +48,20 @@ This demo:
 ## 4) Minimal integration snippet
 
 ```python
+from pathlib import Path
+
 from sudoagent import Context, Decision, PolicyResult, SudoEngine
+from sudoagent.ledger.jsonl import JSONLLedger
 
 class AllowLowRisk:
     def evaluate(self, ctx: Context) -> PolicyResult:
         return PolicyResult(decision=Decision.ALLOW, reason="ok")
 
-engine = SudoEngine(policy=AllowLowRisk())
+engine = SudoEngine(
+    policy=AllowLowRisk(),
+    agent_id="demo:quickstart",
+    ledger=JSONLLedger(Path("sudo_ledger.jsonl")),
+)
 
 @engine.guard()
 def my_tool(x: int) -> int:

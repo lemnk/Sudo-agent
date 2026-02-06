@@ -7,8 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.0.0] - 2026-01-28
 
+## [Unreleased]
+
 ### Added
-- Fail-closed runtime pipeline: policy → (optional) approval → (optional) budgets → execution.
+- Async-first engine API (`AsyncSudoEngine`) and async protocol interfaces for I/O boundaries.
+- `SudoEngine.from_env()` factory using `SUDOAGENT_LEDGER_PATH`.
+- Windows-friendly test temp fixtures to avoid temp ACL and cleanup collisions.
+
+### Changed
+- `SudoEngine` now requires an explicit `agent_id` (no `"unknown"` default).
+- `SudoEngine` now requires an explicit `ledger` (or `SudoEngine.from_env()`).
+- `SudoEngine.execute()` defaults to isolated `asyncio.run()` per call (configurable via `run_sync_mode`).
+
+### Fixed
+- JSONL ledger verification now reliably detects tampering (seek-to-start before streaming).
+- Cross-platform file locking behavior for append-only JSONL ledgers.
+- Background-loop reentrancy guard for `run_sync` to prevent deadlocks in nested calls.
+- Async SQLite approval store no longer relies on a check-then-act read before upsert.
+
+### Added
+- Fail-closed runtime pipeline: policy -> (optional) approval -> (optional) budgets -> execution.
 - Tamper-evident ledgers with hash chaining; JSONL backend (default) and SQLite WAL backend.
 - Optional Ed25519 signing/verification and receipt export via CLI.
 - Adapters for LangChain, CrewAI, and AutoGen with lazy imports and optional extras.

@@ -40,3 +40,6 @@ SudoAgent provides a runtime authorization boundary for tool/function calls and 
 - Default OSS deployment is local/single-host (JSONL + in-memory budgets/approvals).
 - For multi-process or higher assurance, use `SQLiteLedger` plus durable budgets/approvals.
 - A future gateway/control plane (commercial) may offer multi-host ledgering/approvals; it is out of scope for this OSS threat model.
+
+## Validation matrix
+- See `docs/threat_test_matrix.md` for the threat-to-test mapping and release gate commands.

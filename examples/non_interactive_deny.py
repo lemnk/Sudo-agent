@@ -1,6 +1,10 @@
 """Demo: non-interactive mode where approvals always fail closed (deny)."""
 
+from decimal import Decimal
+from pathlib import Path
+
 from sudoagent import ApprovalDenied, Context, Decision, PolicyResult, SudoEngine
+from sudoagent.ledger.jsonl import JSONLLedger
 
 
 class NonInteractiveApprover:
@@ -21,7 +25,7 @@ class RequiresApprovalPolicy:
         )
 
 
-def dangerous_transfer(user_id: str, amount: float) -> None:
+def dangerous_transfer(user_id: str, amount: Decimal) -> None:
     """Simulate a dangerous money transfer."""
     print(f"TRANSFER: ${amount} to {user_id}")
 
@@ -29,14 +33,19 @@ def dangerous_transfer(user_id: str, amount: float) -> None:
 def main() -> None:
     policy = RequiresApprovalPolicy()
     approver = NonInteractiveApprover()
-    sudo = SudoEngine(policy=policy, approver=approver)
+    sudo = SudoEngine(
+        policy=policy,
+        approver=approver,
+        agent_id="demo:non-interactive",
+        ledger=JSONLLedger(Path("sudo_ledger.jsonl")),
+    )
 
     guarded_transfer = sudo.guard()(dangerous_transfer)
 
     print("Attempting transfer in non-interactive mode...")
     print("No prompt will appear; approvals are disabled in this mode.")
     try:
-        guarded_transfer(user_id="user_789", amount=5000.0)
+        guarded_transfer(user_id="user_789", amount=Decimal("5000"))
     except ApprovalDenied as e:
         print(f"Denied: {e}")
     print("Done.")

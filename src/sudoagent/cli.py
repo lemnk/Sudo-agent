@@ -88,6 +88,11 @@ def _write_entries(
     output_format: str,
     output_path: Path | None,
 ) -> int:
+    """Write entries in the specified format. Streams entries to avoid memory issues.
+
+    For JSON format: writes a valid JSON array incrementally without loading all entries.
+    For NDJSON/CSV: already streams naturally.
+    """
     output = sys.stdout
     close_output = False
     if output_path is not None:
@@ -95,9 +100,15 @@ def _write_entries(
         close_output = True
     try:
         if output_format == "json":
-            payload = list(entries)
-            output.write(json.dumps(payload, ensure_ascii=False))
-            output.write("\n")
+            # Stream JSON array incrementally: [entry1,entry2,...]
+            output.write("[")
+            first = True
+            for entry in entries:
+                if not first:
+                    output.write(",")
+                first = False
+                output.write(json.dumps(entry, ensure_ascii=False))
+            output.write("]\n")
         elif output_format == "ndjson":
             for entry in entries:
                 output.write(json.dumps(entry, ensure_ascii=False, separators=(",", ":")) + "\n")
@@ -223,11 +234,11 @@ def _cmd_export(ledger_path: Path, output_format: str, output_path: Path | None)
         print("ledger file not found", file=sys.stderr)
         return 1
     try:
-        entries = list(_iter_entries(ledger_path))
+        entries = _iter_entries(ledger_path)
+        return _write_entries(entries, output_format, output_path)
     except (OSError, json.JSONDecodeError) as exc:
         print(f"export failed: {exc}", file=sys.stderr)
         return 1
-    return _write_entries(entries, output_format, output_path)
 
 
 def _matches_filters(
@@ -285,23 +296,23 @@ def _cmd_filter(
         print("--start must be <= --end", file=sys.stderr)
         return 2
     try:
-        entries = list(_iter_entries(ledger_path))
+        entries = _iter_entries(ledger_path)
+        filtered = (
+            entry
+            for entry in entries
+            if _matches_filters(
+                entry,
+                request_id=request_id,
+                action=action,
+                agent_id=agent_id,
+                start=start_ts,
+                end=end_ts,
+            )
+        )
+        return _write_entries(filtered, output_format, output_path)
     except (OSError, json.JSONDecodeError) as exc:
         print(f"filter failed: {exc}", file=sys.stderr)
         return 1
-    filtered = [
-        entry
-        for entry in entries
-        if _matches_filters(
-            entry,
-            request_id=request_id,
-            action=action,
-            agent_id=agent_id,
-            start=start_ts,
-            end=end_ts,
-        )
-    ]
-    return _write_entries(filtered, output_format, output_path)
 
 
 def _cmd_search(
@@ -329,30 +340,32 @@ def _cmd_search(
         return 2
     query_text = query.lower()
     try:
-        entries = list(_iter_entries(ledger_path))
+        entries = _iter_entries(ledger_path)
+
+        def _matches_query(entry: dict[str, object]) -> bool:
+            for key in ("request_id", "action", "agent_id"):
+                value = entry.get(key)
+                if isinstance(value, str) and query_text in value.lower():
+                    return True
+            return False
+
+        matched = (
+            entry
+            for entry in entries
+            if _matches_query(entry)
+            and _matches_filters(
+                entry,
+                request_id=None,
+                action=None,
+                agent_id=None,
+                start=start_ts,
+                end=end_ts,
+            )
+        )
+        return _write_entries(matched, output_format, output_path)
     except (OSError, json.JSONDecodeError) as exc:
         print(f"search failed: {exc}", file=sys.stderr)
         return 1
-    def _matches_query(entry: dict[str, object]) -> bool:
-        for key in ("request_id", "action", "agent_id"):
-            value = entry.get(key)
-            if isinstance(value, str) and query_text in value.lower():
-                return True
-        return False
-    matched = [
-        entry
-        for entry in entries
-        if _matches_query(entry)
-        and _matches_filters(
-            entry,
-            request_id=None,
-            action=None,
-            agent_id=None,
-            start=start_ts,
-            end=end_ts,
-        )
-    ]
-    return _write_entries(matched, output_format, output_path)
 
 
 def _cmd_keygen(
@@ -392,7 +405,7 @@ def _cmd_receipt(
         print("provide exactly one of --request-id or --decision-hash", file=sys.stderr)
         return 2
     try:
-        entries = list(_iter_entries(ledger_path))
+        entries = _iter_entries(ledger_path)
     except (OSError, json.JSONDecodeError) as exc:
         print(f"receipt failed: {exc}", file=sys.stderr)
         return 1

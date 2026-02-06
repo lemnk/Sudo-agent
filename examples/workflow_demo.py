@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from decimal import Decimal
 from pathlib import Path
 
 from sudoagent import (
@@ -9,6 +10,7 @@ from sudoagent import (
     Context,
     Decision,
     JSONLLedger,
+    SQLiteLedger,
     PolicyResult,
     SudoEngine,
 )
@@ -19,8 +21,8 @@ class PaymentPolicy:
     """Require approval for amounts above a fixed limit."""
 
     def evaluate(self, ctx: Context) -> PolicyResult:
-        amount = float(ctx.kwargs.get("amount", 0))
-        if amount <= 100:
+        amount = ctx.kwargs.get("amount", Decimal("0"))
+        if amount <= Decimal("100"):
             return PolicyResult(
                 decision=Decision.ALLOW,
                 reason="amount within auto-approval limit",
@@ -40,8 +42,16 @@ class AlwaysApprove(Approver):
 
 
 def main() -> None:
-    ledger_path = Path("sudo_ledger.jsonl")
-    ledger = JSONLLedger(ledger_path)
+    ledger_kind = (os.getenv("SUDOAGENT_LEDGER") or "jsonl").strip().lower()
+    env_path = os.getenv("SUDOAGENT_LEDGER_PATH")
+
+    if ledger_kind == "sqlite":
+        ledger_path = Path(env_path) if env_path else Path("sudo_ledger.sqlite")
+        ledger = SQLiteLedger(ledger_path)
+    else:
+        ledger_path = Path(env_path) if env_path else Path("sudo_ledger.jsonl")
+        ledger = JSONLLedger(ledger_path)
+
     budget = BudgetManager(agent_limit=2, tool_limit=2, window_seconds=60)
     approver = AlwaysApprove() if os.getenv("SUDOAGENT_AUTO_APPROVE") == "1" else None
     engine = SudoEngine(
@@ -53,21 +63,21 @@ def main() -> None:
     )
 
     @engine.guard(budget_cost=1)
-    def charge(user_id: str, amount: float) -> None:
+    def charge(user_id: str, amount: Decimal) -> None:
         print(f"charge {user_id} amount={amount}")
 
     print("Demo 1: low amount (allowed)")
-    charge("user-1", amount=25.0)
+    charge("user-1", amount=Decimal("25"))
 
     print("\nDemo 2: high amount (requires approval)")
     try:
-        charge("user-2", amount=250.0)
+        charge("user-2", amount=Decimal("250"))
     except ApprovalDenied as exc:
         print(f"Denied: {exc}")
 
     print("\nDemo 3: budget limit (may deny)")
     try:
-        charge("user-3", amount=10.0)
+        charge("user-3", amount=Decimal("10"))
     except ApprovalDenied as exc:
         print(f"Denied: {exc}")
 

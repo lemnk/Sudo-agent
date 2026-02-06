@@ -21,4 +21,4 @@ class JsonlAuditLogger:
             with self.path.open("a", encoding="utf-8") as f:
                 f.write(entry.to_json_line() + "\n")
         except Exception as e:
-            raise AuditLogError(f"Failed to write audit log: {e}") from e
+            raise AuditLogError("Failed to write audit log") from e

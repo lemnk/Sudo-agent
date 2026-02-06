@@ -39,7 +39,12 @@ pytest -q
 
 ## Does SudoAgent support asyncio?
 
-The core engine is synchronous today to keep the fail-closed path simple and compatible everywhere. In async apps you can run guards in a thread pool (e.g., anyio.to_thread.run_sync / loop.run_in_executor) to avoid blocking the event loop. A native async API is on the roadmap; we won't claim it until it exists.
+Yes.
+
+- `AsyncSudoEngine` is the native async engine for services and event-loop runtimes.
+- `SudoEngine` is a sync wrapper over the async core for scripts/sync apps.
+- If you call `SudoEngine.execute()` from inside an active event loop, it raises a `RuntimeError`; use `AsyncSudoEngine` there.
+- `SudoEngine` defaults to a JSONL ledger at `sudo_ledger.jsonl` (or pass a ledger / set `SUDOAGENT_LEDGER_PATH`).
 
 ## Can I change policy without a code deploy?
 
@@ -50,10 +55,12 @@ Right now policies are Python classes for determinism and testability. The roadm
 - JSONL (`JSONLLedger`) is simple and inspectable, best for single-process and local/dev.
 - SQLite (`SQLiteLedger`) is better for multi-process on one host (WAL mode) and for querying.
 - Use `persistent_budget` and `SQLiteApprovalStore` if you need budgets/approvals to survive restarts.
+- SQLite defaults to `synchronous=FULL` for durability; switch to `NORMAL` if you prefer higher throughput and accept weaker crash guarantees.
+- Approval TTLs rely on wall-clock time; keep NTP/time sync healthy in production.
 
 ## Is there an “enterprise” version?
 
-The open-source engine is the core: synchronous guardrail + tamper-evident ledger. A future commercial control plane (“gateway”) may add multi-host ledgering, richer approvals, and SIEM/GRC integrations. There is no hidden v3 of the OSS engine; the current v2 remains supported.
+The open-source engine is the core: async-native guardrail + sync wrapper + tamper-evident ledger. A future commercial control plane (“gateway”) may add multi-host ledgering, richer approvals, and SIEM/GRC integrations. There is no hidden v3 replacing OSS; the current OSS line remains supported.
 
 ## Do I need SudoAgent if I already built this?
 

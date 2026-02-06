@@ -133,20 +133,30 @@ class DecisionRecord(TypedDict):
     reason: str
     reason_code: str | None
     policy_id: str
+    policy_version: str | None
     policy_hash: str
     decision_hash: str
 
 
 class ApprovalRecord(TypedDict, total=False):
+    approval_id: str | None
     binding: dict[str, str] | None
     approved: bool
     approver_id: str | None
     policy_decision: str | None
+    state: str | None
+    created_at: str | None
+    resolved_at: str | None
+    expires_at: str | None
 
 
 class BudgetRecord(TypedDict, total=False):
     budget_key: str | None
+    agent_id: str | None
+    action: str | None
     cost: int | None
+    window_seconds: int | None
+    checked: bool | None
 
 
 class LedgerDecisionEntry(TypedDict):
@@ -165,10 +175,11 @@ class LedgerDecisionEntry(TypedDict):
     approval: ApprovalRecord | None
     metadata: dict[str, Any]
     budget: NotRequired[BudgetRecord | None]
+    parameters: dict[str, Any]
 
 
 class OutcomeRecord(TypedDict, total=False):
-    outcome: Literal["success", "error"]
+    status: Literal["success", "error"]
     reason: str
     reason_code: str | None
     error_type: str | None
@@ -188,7 +199,7 @@ class LedgerOutcomeEntry(TypedDict):
     action: str
     agent_id: str
     decision: dict[str, str | None]
-    result: OutcomeRecord
+    outcome: OutcomeRecord
     parameters: dict[str, Any]
     metadata: NotRequired[dict[str, Any]]
 

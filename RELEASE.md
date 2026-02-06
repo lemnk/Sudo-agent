@@ -49,9 +49,15 @@ python -m venv .venv_release
 pip install --upgrade pip
 pip install sudoagent==2.0.0
 python - <<'PY'
+from pathlib import Path
+
 from sudoagent import SudoEngine, AllowAllPolicy
-from sudoagent.ledger.jsonl import JsonlLedger
-engine = SudoEngine(policy=AllowAllPolicy(), ledger=JsonlLedger("sudo_ledger.jsonl"))
+from sudoagent.ledger.jsonl import JSONLLedger
+engine = SudoEngine(
+    policy=AllowAllPolicy(),
+    agent_id="release:smoke",
+    ledger=JSONLLedger(Path("sudo_ledger.jsonl")),
+)
 @engine.guard(action="demo.echo")
 def echo(x): return x
 print(echo("ok"))

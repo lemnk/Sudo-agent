@@ -8,6 +8,7 @@ env/
 dist/
 build/
 .pytest_cache/
+.pytest_user_tmp/
 .ruff_cache/
 .mypy_cache/
 
@@ -27,4 +28,5 @@ keys/
 *.key
 *.sqlite
 *.db
+*.db-journal
 .venv_release/

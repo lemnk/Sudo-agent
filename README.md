@@ -40,7 +40,7 @@ Version: 2.0.0 (v2 ledger/verification)
 - If you already have budgets, approvals, tamper-evident logging, receipts, and verification wired correctly across your services, you don’t need SudoAgent.
 
 ## What it is / isn’t
-- It is: a synchronous authorization boundary around tool/function calls with deterministic redaction and a tamper-evident ledger.
+- It is: an authorization boundary around tool/function calls with deterministic redaction and a tamper-evident ledger. The native core is async (`AsyncSudoEngine`), with a sync wrapper (`SudoEngine`) for compatibility.
 - It is not: an agent orchestrator, scheduler, or sandbox. Policies are Python today for determinism; signed policy bundles (OPA/Rego or YAML) are a roadmap item for code-less changes.
 
 ## Repository map (start here)
@@ -81,8 +81,10 @@ Sharding guidance: use one ledger file per domain/env (e.g., `ledgers/prod-payme
 
 ## How it works
 
-1. You create a `SudoEngine` with a required policy.
-2. You decorate functions with `@sudo.guard()` or call `sudo.execute(func, ...)`.
+1. You create an engine with a required policy:
+   - `AsyncSudoEngine` for async apps/services (recommended there)
+   - `SudoEngine` for sync apps/scripts
+2. You decorate functions with `@engine.guard()` or call `engine.execute(func, ...)`.
 3. The engine evaluates the policy, optionally invokes the approver, writes the decision to the ledger + audit log, and then executes (or denies).
 
 Key behavior:
@@ -134,7 +136,12 @@ SUDOAGENT_LEDGER=sqlite python examples/workflow_demo.py  # or instantiate SQLit
 
 For a 5-minute walkthrough and production checklist, see [docs/quickstart.md](docs/quickstart.md).
 OSS guide: [docs/oss_guide.md](docs/oss_guide.md).
-FAQ / gotchas: [docs/faq.md](docs/faq.md) (includes asyncio guidance).
+FAQ / gotchas: [docs/faq.md](docs/faq.md) (includes sync/async guidance and wrapper behavior).
+
+Async note:
+- Use `AsyncSudoEngine` in FastAPI/aiohttp/Jupyter/event-loop contexts.
+- `SudoEngine` is a sync wrapper over the async core and will raise if called from inside an active event loop.
+- `SudoEngine` defaults to a JSONL ledger at `sudo_ledger.jsonl` (or set `SUDOAGENT_LEDGER_PATH` / pass a ledger explicitly).
 
 Full workflow demo (approval + budgets + verify):
 
@@ -190,26 +197,34 @@ $env:SUDOAGENT_AUTO_APPROVE="1"; python examples/quickstart.py
 ## Basic usage
 
 ```python
+from decimal import Decimal
+from pathlib import Path
+
 from sudoagent import ApprovalDenied, Context, Decision, PolicyResult, SudoEngine
+from sudoagent.ledger.jsonl import JSONLLedger
 
 class HighValueRefundPolicy:
     def evaluate(self, ctx: Context) -> PolicyResult:
-        refund_amount = ctx.kwargs.get("refund_amount", 0)
-        if refund_amount <= 500:
+        refund_amount = ctx.kwargs.get("refund_amount", Decimal("0"))
+        if refund_amount <= Decimal("500"):
             return PolicyResult(decision=Decision.ALLOW, reason="within limit")
         return PolicyResult(decision=Decision.REQUIRE_APPROVAL, reason="over limit")
 
 policy = HighValueRefundPolicy()
-sudo = SudoEngine(policy=policy)
+sudo = SudoEngine(
+    policy=policy,
+    agent_id="demo:readme",
+    ledger=JSONLLedger(Path("sudo_ledger.jsonl")),
+)
 
 @sudo.guard()
-def refund_user(user_id: str, refund_amount: float) -> None:
+def refund_user(user_id: str, refund_amount: Decimal) -> None:
     print(f"Refunding {refund_amount} to {user_id}")
 
-refund_user("user_1", refund_amount=10.0)
+refund_user("user_1", refund_amount=Decimal("10"))
 
 try:
-    refund_user("user_2", refund_amount=1500.0)
+    refund_user("user_2", refund_amount=Decimal("1500"))
 except ApprovalDenied as e:
     print(f"Denied: {e}")
 ```
@@ -223,9 +238,9 @@ except ApprovalDenied as e:
 - **Budgets**: optional rate limits via `BudgetManager` (pass `budget_cost` to `execute`/`guard` for spend accounting). Use `persistent_budget(...)` for durable counters.
 - **Fail-closed**: if policy, approval, or decision logging fails, execution is blocked.
 - **decision_hash**: SHA-256 over canonical decision payload (request_id, intent, parameters, actor, policy_hash).
-- **policy_id**: stable policy identifier (class name by default).
-- **policy_hash**: SHA-256 over canonicalized policy identifier (class name by default).
-- **Ledger schema**: entries include `schema_version`, `ledger_version`, `agent_id`, `policy_id`, `policy_hash`, and redacted args/kwargs metadata.
+- **policy_id**: stable policy identifier (default: fully qualified class name).
+- **policy_hash**: explicit policy hash when provided; otherwise derived from policy identity plus source hash when available.
+- **Ledger schema**: entries include `schema_version`, `ledger_version`, `agent_id`, `policy_id`, `policy_hash`, structured approval/budget blocks (when applicable), and redacted parameters.
 - **Ledger verification**: `sudoagent verify <ledger_path>` checks schema/ledger versions, hash chain, and decision_hash references.
 
 ## Reason codes
@@ -245,6 +260,7 @@ Stable, searchable reason codes are emitted in decision metadata and ledger entr
 ## Security
 
 - Threat model: see [THREAT_MODEL.md](THREAT_MODEL.md).
+- Threat-to-test matrix: see [docs/threat_test_matrix.md](docs/threat_test_matrix.md).
 - Security policy: see [SECURITY.md](SECURITY.md).
 - Rich markup in approval prompts is escaped to prevent terminal injection.
 - Redaction is centralized and applied before policy evaluation, approval prompts, and ledger hashing.
@@ -287,7 +303,7 @@ Adapters:
 See [ROADMAP.md](ROADMAP.md) for a short, best-effort plan.
 
 Big picture:
-- OSS “embedded engine” stays: synchronous guard + tamper-evident ledger, local by default, SQLite recommended for multi-process.
+- OSS “embedded engine” stays: async-native core + sync wrapper, tamper-evident ledger, local by default, SQLite recommended for multi-process.
 - Future “gateway/control plane” (commercial) will layer on: multi-host ledger, richer approvals, SIEM/export integrations, hosted ops. No timelines or promises here; OSS remains usable on its own.
 
 ## Support policy

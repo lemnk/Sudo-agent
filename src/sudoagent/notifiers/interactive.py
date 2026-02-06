@@ -39,4 +39,4 @@ class InteractiveApprover(Approver):
         except (KeyboardInterrupt, EOFError) as e:
             raise ApprovalError("Approval prompt interrupted") from e
         except Exception as e:
-            raise ApprovalError(f"Approval prompt failed: {e}") from e
+            raise ApprovalError("Approval prompt failed") from e

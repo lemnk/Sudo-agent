@@ -5,7 +5,7 @@ This document summarizes the v2 ledger format, hashing rules, and verification w
 ## Canonicalization and hashes
 - Canonical JSON: lexicographic object keys, no extra whitespace, decimal numbers (no exponent), ISO 8601 UTC timestamps with microseconds and `Z`.
 - `decision_hash`: SHA-256 over canonical JSON containing `request_id`, `decision_at`, `policy_hash`, `intent`, `resource`, `parameters`, `actor`, and `version`.
-- `policy_hash`: SHA-256 over the canonicalized policy identifier (class name by default).
+- `policy_hash`: explicit policy hash when provided; otherwise derived from policy identity plus source hash when available.
 - `entry_hash`: SHA-256 over the full ledger entry with `entry_hash` set to `null`, chained via `prev_entry_hash`.
 - Redaction is centralized and applied before policy evaluation, approval prompts, and hashing.
 
@@ -18,16 +18,17 @@ Each entry includes the following top-level fields:
 - `event`: `decision` or `outcome`.
 - `action`: fully qualified function identity.
 - `agent_id`: identifier for the caller/agent.
-- `metadata`: includes redacted `args`/`kwargs` snapshots for decision and outcome entries.
+- `metadata`: safe extensible metadata (reason codes and other non-sensitive context). Redacted call inputs are stored in `parameters`.
 - `entry_signature` (optional): Ed25519 signature over `entry_hash` when signing is enabled.
 
 Decision entries include:
-- `decision.policy_id`: stable policy identifier (class name by default).
-- `decision.policy_hash`: SHA-256 of the canonical policy identifier.
+- `decision.policy_id`: stable policy identifier (default: fully qualified class name).
+- `decision.policy_hash`: explicit policy hash when provided; otherwise derived from policy identity plus source hash when available.
 - `decision.reason_code`: stable taxonomy code when provided.
 - `decision.decision_hash`: binding anchor for approvals and outcomes.
 
 Approval blocks (when present) include:
+- `approval.approval_id`, `approval.state`, `approval.created_at`, `approval.resolved_at`, `approval.expires_at`
 - `approval.binding`: `{request_id, policy_hash, decision_hash}`.
 - `approval.approved`: boolean decision.
 - `approval.approver_id`: approver identity when provided.

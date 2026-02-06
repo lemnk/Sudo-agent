@@ -41,7 +41,7 @@ Every entry includes these fields (some are added by the backend during append):
 | `action` | string | Fully qualified function identity. |
 | `agent_id` | string | Identifier for the caller/agent. |
 | `decision` | object | Always present; includes `decision_hash`. |
-| `metadata` | object | Redacted args/kwargs snapshots (and other safe metadata). |
+| `metadata` | object | Safe extensible metadata (reason codes and other non-sensitive context). |
 | `prev_entry_hash` | string\|null | Added during append; `null` only for the first entry. |
 | `entry_hash` | string | Added during append; hash of the canonical entry. |
 | `entry_signature` | string (optional) | Added when signing is enabled; signature over `entry_hash`. |
@@ -53,10 +53,11 @@ Decision entries include:
 - `decision.reason`: human-readable reason
 - `decision.reason_code`: stable code when provided
 - `decision.policy_id`: stable policy identifier
-- `decision.policy_hash`: SHA-256 of the canonical policy identifier
+- `decision.policy_hash`: explicit hash when provided, otherwise derived from policy identity/source
 - `decision.decision_hash`: binding anchor for approvals and outcomes
 
 If approval was involved, an `approval` block may be present:
+- `approval.approval_id`, `approval.state`, `approval.created_at`, `approval.resolved_at`, `approval.expires_at`
 - `approval.binding`: `{request_id, policy_hash, decision_hash}`
 - `approval.approved`: boolean
 - `approval.approver_id` (optional): approver identity
@@ -85,7 +86,7 @@ Outcome entries must reference a known decision via:
   "intent": "<action>",
   "resource": {"type": "function", "name": "<action>"},
   "parameters": {"args": [...], "kwargs": {...}},
-  "actor": {"principal": "unknown", "source": "python"}
+  "actor": {"principal": "<agent_id>", "source": "python"}
 }
 ```
 

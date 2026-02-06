@@ -18,10 +18,10 @@ def test_redaction_of_sensitive_key_and_value() -> None:
     redacted_kwargs = redact_kwargs(kwargs)
 
     assert redacted_args[0] == "[redacted]"
-    assert redacted_args[1] == "'hello'"
+    assert redacted_args[1] == "hello"
     assert redacted_kwargs["api_key"] == "[redacted]"
     assert redacted_kwargs["note"] == "[redacted]"
-    assert redacted_kwargs["count"] == "5"
+    assert redacted_kwargs["count"] == 5
 
 
 def test_interactive_approver_redacts_output(monkeypatch) -> None:

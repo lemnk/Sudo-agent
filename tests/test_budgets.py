@@ -15,6 +15,8 @@ from sudoagent.budgets import (
 from sudoagent.policies import PolicyResult
 from sudoagent.types import AuditEntry, Context, Decision
 
+TEST_AGENT_ID = "test-agent"
+
 
 def _fixed_time():
     base = datetime(2026, 1, 25, 12, 0, 0, tzinfo=timezone.utc)
@@ -143,7 +145,7 @@ def test_budget_exceeded_on_check_blocks_execution() -> None:
     budget = BudgetManager(agent_limit=1, tool_limit=None, window_seconds=60)
     logger = _MemoryLogger()
     ledger = _MemoryLedger()
-    engine = SudoEngine(
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, 
         policy=_AllowPolicy(),
         logger=logger,
         ledger=ledger,
@@ -165,7 +167,7 @@ def test_budget_commit_happens_before_execution() -> None:
     budget = BudgetManager(agent_limit=1, tool_limit=None, window_seconds=60)
     logger = _MemoryLogger()
     ledger = _MemoryLedger()
-    engine = SudoEngine(
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, 
         policy=_AllowPolicy(),
         logger=logger,
         ledger=ledger,
@@ -186,7 +188,7 @@ def test_budget_cost_override_affects_limits() -> None:
     budget = BudgetManager(agent_limit=2, tool_limit=None, window_seconds=60)
     logger = _MemoryLogger()
     ledger = _MemoryLedger()
-    engine = SudoEngine(
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, 
         policy=_AllowPolicy(),
         logger=logger,
         ledger=ledger,

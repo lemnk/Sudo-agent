@@ -56,15 +56,18 @@ def main() -> None:
         jsonl_engine = SudoEngine(
             policy=AllowPolicy(),
             ledger=JSONLLedger(tmp / "ledger.jsonl"),
+            agent_id="bench:jsonl",
         )
         sqlite_engine = SudoEngine(
             policy=AllowPolicy(),
             ledger=SQLiteLedger(tmp / "ledger.sqlite"),
+            agent_id="bench:sqlite",
         )
         approval_engine = SudoEngine(
             policy=RequireApprovalPolicy(),
             approver=AutoApprover(),
             ledger=SQLiteLedger(tmp / "ledger_approval.sqlite"),
+            agent_id="bench:approval",
         )
 
         bench("baseline direct", lambda: (lambda x: x)(1))

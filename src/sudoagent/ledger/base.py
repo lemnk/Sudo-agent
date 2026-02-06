@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Protocol, TypeAlias
+from typing import Protocol
 
 from sudoagent.types import LedgerEntry
-
-SigningKey: TypeAlias = Any  # one-line justification: optional dependency at runtime
-VerifyKey: TypeAlias = Any  # one-line justification: optional dependency at runtime
+from .types import VerifyKey
 
 
 class Ledger(Protocol):

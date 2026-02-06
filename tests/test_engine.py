@@ -11,6 +11,8 @@ from sudoagent.policies import PolicyResult
 from sudoagent.types import AuditEntry, Context, Decision
 from sudoagent.approvals_store import ApprovalStore
 
+TEST_AGENT_ID = "test-agent"
+
 
 class StubPolicy:
     """Test policy that returns a fixed decision."""
@@ -85,6 +87,10 @@ class MemoryLedger:
         self.entries.append(entry)
         return str(entry.get("decision_hash", "hash"))
 
+    def verify(self, *, public_key=None) -> None:
+        """No-op verify for tests."""
+        pass
+
 
 class StubApprovalStore(ApprovalStore):
     def __init__(self) -> None:
@@ -137,7 +143,7 @@ class WeirdPolicy:
 def test_policy_required() -> None:
     """Creating SudoEngine without policy raises ValueError."""
     with pytest.raises(ValueError, match="policy is required"):
-        SudoEngine(policy=None)  # type: ignore[arg-type]
+        SudoEngine(agent_id=TEST_AGENT_ID, policy=None)  # type: ignore[arg-type]
 
 
 # -----------------------------------------------------------------------------
@@ -150,7 +156,7 @@ def test_guard_does_not_mutate_shared_policy() -> None:
     default_policy = StubPolicy(Decision.DENY, "default denies")
     override_policy = StubPolicy(Decision.ALLOW, "override allows")
     logger = MemoryLogger()
-    engine = SudoEngine(policy=default_policy, logger=logger, approver=StubApprover(False))
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=default_policy, logger=logger, approver=StubApprover(False))
 
     @engine.guard(policy=override_policy)
     def sample_func(x: int) -> int:
@@ -172,7 +178,7 @@ def test_positional_args_redacted() -> None:
     """Positional args with secret-like values are redacted."""
     policy = StubPolicy(Decision.ALLOW, "allowed")
     logger = MemoryLogger()
-    engine = SudoEngine(policy=policy, logger=logger, approver=StubApprover(False))
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, approver=StubApprover(False))
 
     def sample_func(token: str, count: int) -> int:
         return count
@@ -197,7 +203,7 @@ def test_decision_and_outcome_logged_with_same_request_id_on_error() -> None:
     """Allowed function that raises logs decision + outcome error with same request_id."""
     policy = StubPolicy(Decision.ALLOW, "allowed")
     logger = MemoryLogger()
-    engine = SudoEngine(policy=policy, logger=logger, approver=StubApprover(False))
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, approver=StubApprover(False))
 
     def failing_func() -> None:
         raise ValueError("something went wrong")
@@ -217,7 +223,7 @@ def test_decision_and_outcome_logged_with_same_request_id_on_error() -> None:
     assert outcome_entry.event == "outcome"
     assert outcome_entry.outcome == "error"
     assert outcome_entry.error_type == "ValueError"
-    assert "something went wrong" in (outcome_entry.error or "")
+    assert outcome_entry.error == "ValueError"
 
     # Same request_id
     assert decision_entry.request_id == outcome_entry.request_id
@@ -232,7 +238,7 @@ def test_decision_and_outcome_logged_with_same_request_id_on_error() -> None:
 def test_allow_executes_and_logs() -> None:
     policy = StubPolicy(Decision.ALLOW, "allowed by policy")
     logger = MemoryLogger()
-    engine = SudoEngine(policy=policy, logger=logger, approver=StubApprover(False))
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, approver=StubApprover(False))
 
     def sample_func(x: int) -> int:
         return x * 2
@@ -257,7 +263,7 @@ def test_allow_executes_and_logs() -> None:
 def test_deny_raises_and_logs() -> None:
     policy = StubPolicy(Decision.DENY, "denied by policy")
     logger = MemoryLogger()
-    engine = SudoEngine(policy=policy, logger=logger, approver=StubApprover(False))
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, approver=StubApprover(False))
 
     def sample_func(x: int) -> int:
         return x * 2
@@ -277,7 +283,7 @@ def test_require_approval_approved_executes_and_logs() -> None:
     policy = StubPolicy(Decision.REQUIRE_APPROVAL, "needs approval")
     approver = StubApprover(approved=True)
     logger = MemoryLogger()
-    engine = SudoEngine(policy=policy, logger=logger, approver=approver)
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, approver=approver)
 
     def sample_func(x: int) -> int:
         return x * 3
@@ -305,7 +311,7 @@ def test_require_approval_denied_raises_and_logs() -> None:
     policy = StubPolicy(Decision.REQUIRE_APPROVAL, "needs approval")
     approver = StubApprover(approved=False)
     logger = MemoryLogger()
-    engine = SudoEngine(policy=policy, logger=logger, approver=approver)
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, approver=approver)
 
     def sample_func(x: int) -> int:
         return x * 3
@@ -327,7 +333,7 @@ def test_require_approval_denied_raises_and_logs() -> None:
 def test_policy_exception_fails_closed() -> None:
     policy = FailingPolicy()
     logger = MemoryLogger()
-    engine = SudoEngine(policy=policy, logger=logger, approver=StubApprover(False))
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, approver=StubApprover(False))
 
     def sample_func(x: int) -> int:
         return x * 2
@@ -348,7 +354,7 @@ def test_approver_exception_fails_closed() -> None:
     policy = StubPolicy(Decision.REQUIRE_APPROVAL, "needs approval")
     approver = FailingApprover()
     logger = MemoryLogger()
-    engine = SudoEngine(policy=policy, logger=logger, approver=approver)
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, approver=approver)
 
     def sample_func(x: int) -> int:
         return x * 2
@@ -368,7 +374,7 @@ def test_approver_exception_fails_closed() -> None:
 def test_sensitive_kwargs_redacted_in_audit() -> None:
     policy = StubPolicy(Decision.ALLOW, "allowed")
     logger = MemoryLogger()
-    engine = SudoEngine(policy=policy, logger=logger, approver=StubApprover(False))
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, approver=StubApprover(False))
 
     def sample_func(api_key: str, user_id: str) -> str:
         return f"user={user_id}"
@@ -395,7 +401,7 @@ def test_decision_log_failure_blocks_execution() -> None:
     """If decision logging fails, execution must be blocked (fail-closed)."""
     policy = StubPolicy(Decision.ALLOW, "allowed")
     logger = ControlledFailureLogger(fail_on_event="decision")
-    engine = SudoEngine(policy=policy, logger=logger, approver=StubApprover(False))
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, approver=StubApprover(False))
 
     called = False
 
@@ -416,7 +422,7 @@ def test_outcome_log_failure_does_not_block_return() -> None:
     """Outcome logging is best-effort; failures must not block successful returns."""
     policy = StubPolicy(Decision.ALLOW, "allowed")
     logger = ControlledFailureLogger(fail_on_event="outcome")
-    engine = SudoEngine(policy=policy, logger=logger, approver=StubApprover(False))
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, approver=StubApprover(False))
 
     def sample_func() -> int:
         return 7
@@ -434,7 +440,7 @@ def test_decision_ledger_failure_blocks_execution() -> None:
     policy = StubPolicy(Decision.ALLOW, "allowed")
     ledger = MemoryLedger(fail_on_event="decision")
     logger = MemoryLogger()
-    engine = SudoEngine(policy=policy, logger=logger, ledger=ledger, approver=StubApprover(False))
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, ledger=ledger, approver=StubApprover(False))
 
     called = False
 
@@ -456,7 +462,7 @@ def test_outcome_ledger_failure_does_not_block_return() -> None:
     policy = StubPolicy(Decision.ALLOW, "allowed")
     ledger = MemoryLedger(fail_on_event="outcome")
     logger = MemoryLogger()
-    engine = SudoEngine(policy=policy, logger=logger, ledger=ledger, approver=StubApprover(False))
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, ledger=ledger, approver=StubApprover(False))
 
     def sample_func() -> int:
         return 9
@@ -481,7 +487,7 @@ def test_approval_binding_mismatch_decision_hash_fails_closed() -> None:
         "decision_hash": "wrong",
     }
     approver = BindingApprover(binding_override=mismatched_binding)
-    engine = SudoEngine(policy=policy, logger=logger, ledger=ledger, approver=approver)
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, ledger=ledger, approver=approver)
 
     def sample_func() -> int:
         return 1
@@ -511,7 +517,7 @@ def test_approval_binding_mismatch_policy_hash_fails_closed() -> None:
             "decision_hash": "placeholder",
         }
     )
-    engine = SudoEngine(policy=policy, logger=logger, ledger=ledger, approver=approver)
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, ledger=ledger, approver=approver)
 
     def sample_func() -> int:
         return 2
@@ -535,7 +541,7 @@ def test_reason_code_propagates_to_ledger_and_audit() -> None:
 
     ledger = MemoryLedger()
     logger = MemoryLogger()
-    engine = SudoEngine(policy=PolicyWithReasonCode(), logger=logger, ledger=ledger)
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=PolicyWithReasonCode(), logger=logger, ledger=ledger)
 
     result = engine.execute(lambda: 1)
 
@@ -602,7 +608,7 @@ def test_jwt_value_redacted() -> None:
     """JWT-like values should be redacted in args/kwargs metadata."""
     policy = StubPolicy(Decision.ALLOW, "allowed")
     logger = MemoryLogger()
-    engine = SudoEngine(policy=policy, logger=logger, approver=StubApprover(False))
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, approver=StubApprover(False))
 
     jwt_like = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
 
@@ -621,7 +627,7 @@ def test_pem_value_redacted() -> None:
     """PEM blocks should be redacted in kwargs metadata."""
     policy = StubPolicy(Decision.ALLOW, "allowed")
     logger = MemoryLogger()
-    engine = SudoEngine(policy=policy, logger=logger, approver=StubApprover(False))
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, approver=StubApprover(False))
 
     pem = "-----BEGIN PRIVATE KEY-----\nABCDEF\n-----END PRIVATE KEY-----"
 
@@ -640,7 +646,7 @@ def test_outcome_ledger_includes_redacted_args_kwargs() -> None:
     policy = StubPolicy(Decision.ALLOW, "allowed")
     logger = MemoryLogger()
     ledger = MemoryLedger()
-    engine = SudoEngine(policy=policy, logger=logger, ledger=ledger, approver=StubApprover(False))
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, ledger=ledger, approver=StubApprover(False))
 
     def sample_func(api_key: str, note: str) -> str:
         return note
@@ -650,16 +656,17 @@ def test_outcome_ledger_includes_redacted_args_kwargs() -> None:
 
     assert len(ledger.entries) == 2
     outcome_entry = ledger.entries[1]
-    metadata = outcome_entry.get("metadata")
-    assert isinstance(metadata, dict)
-    assert metadata["args"][0] == "[redacted]"
-    assert metadata["kwargs"]["note"] == "'ok'"
+    # After removing metadata duplication, check parameters instead
+    parameters = outcome_entry.get("parameters")
+    assert isinstance(parameters, dict)
+    assert parameters["args"][0] == "[redacted]"
+    assert parameters["kwargs"]["note"] == "ok"
 
 
 def test_redaction_deterministic_across_calls() -> None:
     policy = StubPolicy(Decision.ALLOW, "allowed")
     logger = MemoryLogger()
-    engine = SudoEngine(policy=policy, logger=logger, approver=StubApprover(False))
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, approver=StubApprover(False))
 
     def sample_func(token: str, secret: str) -> str:
         return "ok"
@@ -686,14 +693,14 @@ def test_policy_receives_redacted_context() -> None:
 
     policy = CapturingPolicy()
     logger = MemoryLogger()
-    engine = SudoEngine(policy=policy, logger=logger, approver=StubApprover(False))
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, approver=StubApprover(False))
 
     with pytest.raises(ApprovalDenied):
         engine.execute(lambda token, count: None, "sk-secret-key", count=7)
 
     assert policy.ctx is not None
     assert policy.ctx.args[0] == "[redacted]"
-    assert policy.ctx.kwargs["count"] == "7"
+    assert policy.ctx.kwargs["count"] == 7
 
 
 # -----------------------------------------------------------------------------
@@ -705,7 +712,7 @@ def test_unknown_decision_fails_closed() -> None:
     """Unknown decision types should fail closed with DENY."""
     policy = WeirdPolicy()
     logger = MemoryLogger()
-    engine = SudoEngine(policy=policy, logger=logger, approver=StubApprover(False))
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, approver=StubApprover(False))
 
     def sample_func() -> None:
         raise AssertionError("should not execute")
@@ -729,7 +736,7 @@ def test_approval_store_records_pending_and_resolution() -> None:
     approver = StubApprover(approved=True)
     logger = MemoryLogger()
     store = StubApprovalStore()
-    engine = SudoEngine(policy=policy, logger=logger, approver=approver, approval_store=store)
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, approver=approver, approval_store=store)
 
     result = engine.execute(lambda: 1)
     assert result == 1
@@ -744,7 +751,7 @@ def test_approval_store_records_denial() -> None:
     approver = StubApprover(approved=False)
     logger = MemoryLogger()
     store = StubApprovalStore()
-    engine = SudoEngine(policy=policy, logger=logger, approver=approver, approval_store=store)
+    engine = SudoEngine(agent_id=TEST_AGENT_ID, policy=policy, logger=logger, approver=approver, approval_store=store)
 
     with pytest.raises(ApprovalDenied):
         engine.execute(lambda: 1)

@@ -14,20 +14,28 @@ Outcome logging is best-effort and must not change the function's return value o
 
 ## Components
 
-### SudoEngine
+### AsyncSudoEngine (core)
 
-Orchestrates policy evaluation, approval, budgets, and logging.
+Native async orchestrator for policy evaluation, approval, budgets, and logging.
 
 Responsibilities:
 - Build a redacted `Context` from the function call (args/kwargs are redacted first).
-- Evaluate `Policy.evaluate(ctx) -> PolicyResult`.
-- If `REQUIRE_APPROVAL`, call `Approver.approve(ctx, result, request_id)`.
+- Evaluate `Policy.evaluate(ctx) -> PolicyResult` (deterministic, sync policy logic).
+- If `REQUIRE_APPROVAL`, call `AsyncApprover.approve(ctx, result, request_id)`.
 - Optionally enforce budgets (Check -> Commit).
 - Write a decision record to:
   - the tamper-evident ledger (evidence)
   - the audit logger (operational record)
 - Execute the function if allowed.
 - Write an outcome record (best-effort).
+
+### SudoEngine (sync compatibility wrapper)
+
+`SudoEngine` wraps `AsyncSudoEngine` for sync code paths.
+
+- Uses a background event loop via `run_sync`.
+- Raises a clear `RuntimeError` if called from an active event loop.
+- In async runtimes, use `AsyncSudoEngine` directly.
 
 ### Policy
 
@@ -44,7 +52,11 @@ The interface supports either:
 - `bool` (approved/denied), or
 - a mapping that can carry `approver_id` plus a binding to `{request_id, policy_hash, decision_hash}`.
 
-Default: `InteractiveApprover` (terminal prompt). For production, inject your own approver (Slack/UI/etc.).
+Sync and async variants exist:
+- Sync: `Approver` (e.g., `InteractiveApprover`, dev-oriented)
+- Async: `AsyncApprover` (recommended for services/SaaS)
+
+For production, inject a non-interactive approver (Slack/UI/webhook/polling store).
 
 ### BudgetManager (optional)
 
@@ -65,6 +77,8 @@ By default SudoAgent writes `sudo_ledger.jsonl` using `JSONLLedger`, which:
 
 For a single-host multi-process deployment, `SQLiteLedger` uses WAL mode.
 If you need budgets/approvals to persist across restarts, use `SQLiteLedger` plus the durable budget/approval stores (`persistent_budget`, `SQLiteApprovalStore`).
+SQLite defaults to `synchronous=FULL` for durability. If you need higher throughput and can accept reduced crash durability, set it to `NORMAL`.
+Approval TTL enforcement uses wall-clock time; in production, keep NTP/time sync healthy to avoid skew.
 
 ### AuditLogger (operational)
 
@@ -98,8 +112,11 @@ By default SudoAgent writes `sudo_audit.jsonl` via `JsonlAuditLogger`. This is n
 
 Extension points:
 - Policy: implement `evaluate(ctx) -> PolicyResult`
-- Approver: implement `approve(ctx, result, request_id) -> bool | Mapping[str, object]`
-- Ledger: implement the `Ledger` protocol (append + verify)
-- AuditLogger: implement `AuditLogger.log(entry) -> None`
+- Sync approver: implement `Approver.approve(ctx, result, request_id) -> bool | Mapping[str, object]`
+- Async approver: implement `AsyncApprover.approve(ctx, result, request_id) -> bool | Mapping[str, object]`
+- Sync ledger/logger: implement `Ledger` / `AuditLogger`
+- Async ledger/logger: implement `AsyncLedger` / `AsyncAuditLogger`
+
+Use adapters in `src/sudoagent/adapters/sync_to_async.py` when you need to bridge sync implementations into async engine wiring.
 
 SudoAgent is intentionally small: it enforces "do not execute unless governance can be proven", and leaves orchestration to other frameworks.

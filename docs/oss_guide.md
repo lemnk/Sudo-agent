@@ -56,10 +56,11 @@ Use a stable `agent_id` that encodes ownership:
 
 Budgets can be set per agent or per tool; policies can branch on `ctx.metadata["agent_id"]`.
 
-## Approval patterns (v2 is synchronous)
+## Approval patterns (sync + async)
 
 Recommended patterns:
-- CLI prompt (dev/demo)
+- CLI prompt (dev/demo, sync)
+- Polling/webhook approver (async service paths)
 - Slack or HTTP approver (custom)
 - Auto-approve in CI or demos via environment variable
 
@@ -67,6 +68,11 @@ Timeout handling:
 - Approver should enforce a timeout.
 - On timeout: deny and log `APPROVAL_PROCESS_FAILED`.
 - Agent may retry with a new request_id.
+
+Engine choice:
+- Use `AsyncSudoEngine` in async runtimes (FastAPI/aiohttp/Jupyter).
+- Use `SudoEngine` in sync runtimes; it wraps the async core.
+- `SudoEngine` defaults to a JSONL ledger at `sudo_ledger.jsonl` (or pass a ledger / set `SUDOAGENT_LEDGER_PATH`).
 
 ## Policy versioning (best practice)
 

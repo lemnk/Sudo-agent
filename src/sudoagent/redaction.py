@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
+
+from .ledger.types import JSONValue
 
 _SENSITIVE_KEY_TERMS = (
     "api_key",
@@ -62,22 +65,66 @@ def is_sensitive_value(value: Any) -> bool:
     return False
 
 
-def redact_value(key: str | None, value: Any) -> str:
-    if isinstance(value, str):
-        if value == "[redacted]":
-            return value
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-            return value
+def _non_json_placeholder(value: Any) -> str:
+    """Return a deterministic, non-leaky placeholder for non-JSON values."""
+    t = type(value)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return f"<bytes:{len(value)}>"
+    return f"<{t.__name__}>"
+
+
+def redact_value(key: str | None, value: Any) -> JSONValue:
+    """Redact a value while preserving safe primitive types.
+
+    This function is used before policy evaluation and hashing. It must be:
+    - deterministic
+    - JSON-serializable (via sudoagent's canonical JSON rules)
+    - type-preserving for safe primitives so policies can do numeric comparisons
+    """
+    # Idempotence for already-redacted markers.
+    if value == "[redacted]":
+        return "[redacted]"
+
     if key is not None and is_sensitive_key(key):
         return "[redacted]"
-    if is_sensitive_value(value):
-        return "[redacted]"
-    return safe_repr(value)
+
+    # Strings: keep safe strings as-is; redact secret-like strings by value.
+    if isinstance(value, str):
+        if is_sensitive_value(value):
+            return "[redacted]"
+        return value
+
+    # Primitives
+    if value is None:
+        return None
+    if value is True:
+        return True
+    if value is False:
+        return False
+    # NOTE: bool is a subclass of int, so check bool before int.
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, float):
+        raise ValueError("floats are rejected; use Decimal for exact numbers")
+    if isinstance(value, Decimal):
+        return value
+
+    # Arrays
+    if isinstance(value, (list, tuple)):
+        return [redact_value(None, v) for v in value]
+
+    # Objects
+    if isinstance(value, dict):
+        if all(isinstance(k, str) for k in value.keys()):
+            return {k: redact_value(k, v) for k, v in value.items()}
+        return _non_json_placeholder(value)
+
+    return _non_json_placeholder(value)
 
 
-def redact_args(args: tuple[Any, ...]) -> list[str]:
+def redact_args(args: tuple[Any, ...]) -> list[JSONValue]:
     return [redact_value(None, arg) for arg in args]
 
 
-def redact_kwargs(kwargs: dict[str, Any]) -> dict[str, str]:
+def redact_kwargs(kwargs: dict[str, Any]) -> dict[str, JSONValue]:
     return {k: redact_value(k, v) for k, v in kwargs.items()}

@@ -6,6 +6,8 @@ from sudoagent.adapters.crewai import guard_tool as guard_crewai_tool
 from sudoagent.adapters.langchain import guard_tool as guard_langchain_tool
 from sudoagent.types import AuditEntry
 
+TEST_AGENT_ID = "test-agent"
+
 
 class _MemoryLogger:
     def __init__(self) -> None:
@@ -25,7 +27,7 @@ class _MemoryLedger:
 
 
 def _engine() -> SudoEngine:
-    return SudoEngine(
+    return SudoEngine(agent_id=TEST_AGENT_ID, 
         policy=AllowAllPolicy(),
         logger=_MemoryLogger(),
         ledger=_MemoryLedger(),

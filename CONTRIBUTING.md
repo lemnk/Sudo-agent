@@ -11,7 +11,7 @@ Thanks for taking the time to contribute. This doc explains how to set up the re
 
 ## Project goals (v2)
 
-SudoAgent is a synchronous runtime authorization boundary for sensitive actions:
+SudoAgent is an async-native runtime authorization boundary (with a sync wrapper) for sensitive actions:
 - Policy returns `ALLOW`, `DENY`, or `REQUIRE_APPROVAL`.
 - Approval is optional and policy-driven (interactive is the default approver).
 - A tamper-evident ledger records decisions and outcomes (decision is recorded before execution).
@@ -22,10 +22,13 @@ SudoAgent is a synchronous runtime authorization boundary for sensitive actions:
 ## Repository layout
 
 - `src/sudoagent/` core library
-  - `engine.py` guard and execution flow
+  - `async_engine.py` async core execution flow
+  - `engine.py` sync wrapper over async core
+  - `protocols.py` async I/O contracts
   - `ledger/` tamper-evident evidence backends (JSONL, SQLite) + canonical hashing
   - `loggers/` operational audit loggers (JSONL, etc.)
   - `notifiers/` approvers (interactive, etc.)
+  - `adapters/sync_to_async.py` sync-to-async adapters
   - `budgets.py` budget enforcement
   - `redaction.py` centralized deterministic redaction
   - `reason_codes.py` stable reason-code registry
@@ -73,29 +76,36 @@ python -m pip install -e ".[dev,crypto]"
 Tests:
 
 ```bash
-pytest -q
+python -m pytest -q
 ```
 
 Lint:
 
 ```bash
-ruff check .
+python -m ruff check .
 ```
 
 Typecheck:
 
 ```bash
-mypy src
+python -m mypy src
 ```
 
 Recommended pre-flight before opening a PR:
 
 ```bash
 # bash/zsh
-ruff check . && mypy src && pytest -q
+python -m ruff check . && python -m mypy src && python -m pytest -q
 
 # PowerShell
-ruff check .; mypy src; pytest -q
+python -m ruff check .; python -m mypy src; python -m pytest -q
+```
+
+Windows note (avoids temp permission collisions):
+
+```powershell
+$base = Join-Path $env:TEMP ("sudoagent_test_runs_" + [guid]::NewGuid().ToString("N"))
+python -m pytest -q --basetemp="$base"
 ```
 
 ### Pre-commit
@@ -160,7 +170,7 @@ Keep docs practical:
 - Type hints for public functions and most internal ones.
 - Keep functions short and readable.
 - Avoid Any. If you must use it, isolate it and justify it in one line.
-- No async in v2 (today).
+- Keep async boundaries explicit; avoid blocking calls in async code paths.
 - Prefer Protocol interfaces over inheritance.
 - Avoid heavy refactors in unrelated areas.
 
