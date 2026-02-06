@@ -33,7 +33,8 @@ Responsibilities:
 
 `SudoEngine` wraps `AsyncSudoEngine` for sync code paths.
 
-- Uses a background event loop via `run_sync`.
+- By default runs each call in an isolated event loop (`asyncio.run`).
+- Optionally can use a background shared loop via `run_sync` (`run_sync_mode="background"`).
 - Raises a clear `RuntimeError` if called from an active event loop.
 - In async runtimes, use `AsyncSudoEngine` directly.
 
